@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   final Map<String, dynamic> settings;
   final Function(String key, dynamic value) onUpdate;
 
@@ -13,10 +13,42 @@ class SettingsPage extends StatelessWidget {
   });
 
   @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  late TextEditingController _delayController;
+  late TextEditingController _retryController;
+
+  @override
+  void initState() {
+    super.initState();
+    final postDelay = widget.settings['postDelay'] as int? ?? 3000;
+    final retryCount = widget.settings['retryCount'] as int? ?? 2;
+    _delayController = TextEditingController(text: postDelay.toString());
+    _retryController = TextEditingController(text: retryCount.toString());
+  }
+
+  @override
+  void didUpdateWidget(SettingsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync controllers if settings changed externally
+    final newDelay = (widget.settings['postDelay'] as int? ?? 3000).toString();
+    final newRetry = (widget.settings['retryCount'] as int? ?? 2).toString();
+    if (_delayController.text != newDelay) _delayController.text = newDelay;
+    if (_retryController.text != newRetry) _retryController.text = newRetry;
+  }
+
+  @override
+  void dispose() {
+    _delayController.dispose();
+    _retryController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final postDelay = settings['postDelay'] as int? ?? 3000;
-    final autoRetry = settings['autoRetry'] as bool? ?? true;
-    final retryCount = settings['retryCount'] as int? ?? 2;
+    final autoRetry = widget.settings['autoRetry'] as bool? ?? true;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -79,11 +111,11 @@ class SettingsPage extends StatelessWidget {
                     SizedBox(
                       width: 80,
                       child: TextField(
-                        controller: TextEditingController(text: postDelay.toString()),
+                        controller: _delayController,
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 13, color: Colors.white),
-                        onSubmitted: (v) => onUpdate('postDelay', int.tryParse(v) ?? 3000),
+                        onSubmitted: (v) => widget.onUpdate('postDelay', int.tryParse(v) ?? 3000),
                         decoration: const InputDecoration(
                           contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                         ),
@@ -114,7 +146,7 @@ class SettingsPage extends StatelessWidget {
                     ),
                     Switch(
                       value: autoRetry,
-                      onChanged: (v) => onUpdate('autoRetry', v),
+                      onChanged: (v) => widget.onUpdate('autoRetry', v),
                       activeTrackColor: AppColors.red,
                     ),
                   ],
@@ -143,11 +175,11 @@ class SettingsPage extends StatelessWidget {
                       SizedBox(
                         width: 60,
                         child: TextField(
-                          controller: TextEditingController(text: retryCount.toString()),
+                          controller: _retryController,
                           keyboardType: TextInputType.number,
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 13, color: Colors.white),
-                          onSubmitted: (v) => onUpdate('retryCount', int.tryParse(v) ?? 2),
+                          onSubmitted: (v) => widget.onUpdate('retryCount', int.tryParse(v) ?? 2),
                           decoration: const InputDecoration(
                             contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                           ),

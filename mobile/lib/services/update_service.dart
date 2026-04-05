@@ -25,15 +25,14 @@ class UpdateService {
 
       if (_isNewerVersion(tagName, _currentVersion)) {
         // Find APK asset
-        final assets = data['assets'] as List;
-        final apkAsset = assets.firstWhere(
+        final assets = data['assets'] as List? ?? [];
+        final apkAsset = assets.cast<Map<String, dynamic>>().where(
           (a) => (a['name'] as String).endsWith('.apk'),
-          orElse: () => null,
-        );
+        ).firstOrNull;
 
         return UpdateInfo(
           version: tagName,
-          downloadUrl: apkAsset?['browser_download_url'],
+          downloadUrl: apkAsset?['browser_download_url'] as String?,
           releaseNotes: data['body'] ?? '',
           publishedAt: data['published_at'] ?? '',
         );

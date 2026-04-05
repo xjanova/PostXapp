@@ -47,7 +47,8 @@ class AutomationService {
           );
       }
     } catch (e) {
-      return PostResult(success: false, error: e.toString());
+      final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      return PostResult(success: false, error: 'Posting failed: $msg');
     }
   }
 
