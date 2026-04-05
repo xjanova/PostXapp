@@ -178,7 +178,7 @@ class SettingsPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
                 _AboutRow(label: 'App Name', value: 'PostX App'),
-                _AboutRow(label: 'Version', value: '1.2.0'),
+                _AboutRow(label: 'Version', value: '1.3.0'),
                 _AboutRow(label: 'Developer', value: 'xman studio'),
                 _AboutRow(label: 'Platform', value: 'Android (Flutter)'),
               ],
