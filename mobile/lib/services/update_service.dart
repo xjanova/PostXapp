@@ -3,16 +3,24 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import '../theme/app_theme.dart';
 
 class UpdateService {
   static const String _owner = 'xjanova';
   static const String _repo = 'PostXapp';
-  static const String _currentVersion = '1.3.0';
+
+  /// Get current app version from build config.
+  static Future<String> getCurrentVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    return info.version;
+  }
 
   static Future<UpdateInfo?> checkForUpdate() async {
     try {
+      final currentVersion = await getCurrentVersion();
+
       final response = await http.get(
         Uri.parse('https://api.github.com/repos/$_owner/$_repo/releases/latest'),
         headers: {'Accept': 'application/vnd.github.v3+json'},
@@ -23,7 +31,7 @@ class UpdateService {
       final data = jsonDecode(response.body);
       final tagName = (data['tag_name'] as String).replaceFirst('v', '');
 
-      if (_isNewerVersion(tagName, _currentVersion)) {
+      if (_isNewerVersion(tagName, currentVersion)) {
         // Find APK asset
         final assets = data['assets'] as List? ?? [];
         final apkAsset = assets.cast<Map<String, dynamic>>().where(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 
@@ -19,6 +20,7 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   late TextEditingController _delayController;
   late TextEditingController _retryController;
+  String _version = '';
 
   @override
   void initState() {
@@ -27,6 +29,12 @@ class _SettingsPageState extends State<SettingsPage> {
     final retryCount = widget.settings['retryCount'] as int? ?? 2;
     _delayController = TextEditingController(text: postDelay.toString());
     _retryController = TextEditingController(text: retryCount.toString());
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _version = '${info.version}+${info.buildNumber}');
   }
 
   @override
@@ -210,7 +218,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const SizedBox(height: 14),
                 _AboutRow(label: 'App Name', value: 'PostX App'),
-                _AboutRow(label: 'Version', value: '1.3.0'),
+                _AboutRow(label: 'Version', value: _version.isEmpty ? '...' : _version),
                 _AboutRow(label: 'Developer', value: 'xman studio'),
                 _AboutRow(label: 'Platform', value: 'Android (Flutter)'),
               ],

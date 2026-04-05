@@ -11,6 +11,7 @@ import 'pages/compose_page.dart';
 import 'pages/accounts_page.dart';
 import 'pages/history_page.dart';
 import 'pages/settings_page.dart';
+import 'pages/splash_page.dart';
 import 'widgets/posting_dialog.dart';
 
 void main() {
@@ -47,6 +48,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  bool _showSplash = true;
   List<PlatformAccount> _accounts = [];
   List<PostHistoryEntry> _history = [];
   Map<String, dynamic> _settings = {};
@@ -214,6 +216,12 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_showSplash) {
+      return SplashPage(
+        onDone: () => setState(() => _showSplash = false),
+      );
+    }
+
     return Scaffold(
       body: SafeArea(
         child: IndexedStack(
