@@ -15,9 +15,33 @@ interface PostXAPI {
     url: string,
     platformId: string
   ) => Promise<{ success: boolean; cookies: object[] }>
+  executePost: (
+    platformIds: string[],
+    payload: { text: string; imagePaths: string[]; videoPath?: string },
+    delayMs: number
+  ) => Promise<Record<string, PostResultData>>
+  onPostStatus: (callback: (data: PostStatusData) => void) => () => void
+  onPostResult: (callback: (data: PostResultEvent) => void) => () => void
   checkForUpdates: () => Promise<void>
   installUpdate: () => Promise<void>
   onUpdaterStatus: (callback: (data: UpdaterStatus) => void) => () => void
+}
+
+interface PostResultData {
+  success: boolean
+  postUrl?: string
+  error?: string
+}
+
+interface PostStatusData {
+  platformId: string
+  status: string
+  progress: number
+}
+
+interface PostResultEvent {
+  platformId: string
+  result: PostResultData
 }
 
 interface UpdaterStatus {

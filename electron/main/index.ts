@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import Store from 'electron-store'
+import { postToMultiplePlatforms, PostPayload } from '../automation'
 
 const store = new Store()
 
@@ -142,6 +143,30 @@ ipcMain.handle('platform:login', async (_event, platformUrl: string, platformId:
     })
   })
 })
+
+// ── IPC: Post automation ──────────────────────────────────────
+ipcMain.handle(
+  'post:execute',
+  async (
+    _event,
+    platformIds: string[],
+    payload: PostPayload,
+    delayMs: number
+  ) => {
+    const results = await postToMultiplePlatforms(
+      platformIds,
+      payload,
+      delayMs,
+      (platformId, status, progress) => {
+        mainWindow?.webContents.send('post:status', { platformId, status, progress })
+      },
+      (platformId, result) => {
+        mainWindow?.webContents.send('post:result', { platformId, result })
+      }
+    )
+    return results
+  }
+)
 
 // ── IPC: Updater ──────────────────────────────────────────────
 ipcMain.handle('updater:check', () => {

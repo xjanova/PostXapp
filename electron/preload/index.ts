@@ -27,6 +27,34 @@ const api = {
   ): Promise<{ success: boolean; cookies: object[] }> =>
     ipcRenderer.invoke('platform:login', url, platformId),
 
+  // Post automation
+  executePost: (
+    platformIds: string[],
+    payload: { text: string; imagePaths: string[]; videoPath?: string },
+    delayMs: number
+  ): Promise<Record<string, { success: boolean; postUrl?: string; error?: string }>> =>
+    ipcRenderer.invoke('post:execute', platformIds, payload, delayMs),
+
+  onPostStatus: (
+    callback: (data: { platformId: string; status: string; progress: number }) => void
+  ): (() => void) => {
+    const handler = (_event: unknown, data: { platformId: string; status: string; progress: number }): void =>
+      callback(data)
+    ipcRenderer.on('post:status', handler)
+    return () => ipcRenderer.removeListener('post:status', handler)
+  },
+
+  onPostResult: (
+    callback: (data: { platformId: string; result: { success: boolean; postUrl?: string; error?: string } }) => void
+  ): (() => void) => {
+    const handler = (
+      _event: unknown,
+      data: { platformId: string; result: { success: boolean; postUrl?: string; error?: string } }
+    ): void => callback(data)
+    ipcRenderer.on('post:result', handler)
+    return () => ipcRenderer.removeListener('post:result', handler)
+  },
+
   // Auto updater
   checkForUpdates: (): Promise<void> => ipcRenderer.invoke('updater:check'),
   installUpdate: (): Promise<void> => ipcRenderer.invoke('updater:install'),
