@@ -24,7 +24,7 @@ class CookieService {
       'path': c.path ?? '/',
       'isSecure': c.isSecure ?? true,
       'isHttpOnly': c.isHttpOnly ?? false,
-      'expiresDate': c.expiresDate?.toIso8601String(),
+      'expiresDate': c.expiresDate,
     }).toList();
 
     final prefs = await SharedPreferences.getInstance();
@@ -42,7 +42,7 @@ class CookieService {
           'path': c.path ?? '/',
           'isSecure': c.isSecure ?? true,
           'isHttpOnly': c.isHttpOnly ?? false,
-          'expiresDate': c.expiresDate?.toIso8601String(),
+          'expiresDate': c.expiresDate,
         }).toList();
 
         await prefs.setString(
@@ -84,7 +84,7 @@ class CookieService {
         isSecure: map['isSecure'] ?? true,
         isHttpOnly: map['isHttpOnly'] ?? false,
         expiresDate: map['expiresDate'] != null
-            ? DateTime.parse(map['expiresDate']).millisecondsSinceEpoch
+            ? (map['expiresDate'] as num).toInt()
             : null,
       );
     }
