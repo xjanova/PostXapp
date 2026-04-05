@@ -9,7 +9,7 @@ import '../theme/app_theme.dart';
 class UpdateService {
   static const String _owner = 'xjanova';
   static const String _repo = 'PostXapp';
-  static const String _currentVersion = '1.1.1';
+  static const String _currentVersion = '1.2.0';
 
   static Future<UpdateInfo?> checkForUpdate() async {
     try {
