@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'theme/app_theme.dart';
 import 'models/platform_model.dart';
 import 'models/post_model.dart';
+import 'services/cookie_service.dart';
 import 'services/storage_service.dart';
 import 'services/update_service.dart';
 import 'pages/dashboard_page.dart';
@@ -66,6 +67,10 @@ class _MainScreenState extends State<MainScreen> {
       _history = history;
       _settings = settings;
     });
+
+    // Restore saved cookies into CookieManager so WebViews have sessions ready
+    await CookieService.restoreAllCookies(_accounts);
+
     _checkForUpdates();
   }
 
@@ -127,6 +132,7 @@ class _MainScreenState extends State<MainScreen> {
 
     if (confirmed == true) {
       _accounts.removeWhere((a) => a.platformId == platform);
+      await CookieService.deleteCookies(platform);
       await StorageService.saveAccounts(_accounts);
       setState(() {});
     }

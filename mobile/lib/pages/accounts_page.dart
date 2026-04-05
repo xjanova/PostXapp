@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../theme/app_theme.dart';
 import '../models/platform_model.dart';
+import '../services/cookie_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/platform_icon.dart';
 
@@ -16,6 +17,15 @@ class AccountsPage extends StatelessWidget {
     required this.onLogin,
     required this.onLogout,
   });
+
+  static String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 30) return '${diff.inDays}d ago';
+    return '${dt.day}/${dt.month}/${dt.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -125,16 +135,35 @@ class AccountsPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           if (isConnected)
-                            Row(
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Icon(Icons.check_circle, size: 10, color: AppColors.success),
-                                const SizedBox(width: 4),
-                                Text(
-                                  account!.displayName.isNotEmpty
-                                      ? account.displayName
-                                      : account.username,
-                                  style: TextStyle(fontSize: 11, color: AppColors.surface400),
+                                Row(
+                                  children: [
+                                    Icon(Icons.check_circle, size: 10, color: AppColors.success),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      account!.displayName.isNotEmpty
+                                          ? account.displayName
+                                          : account.username,
+                                      style: TextStyle(fontSize: 11, color: AppColors.surface400),
+                                    ),
+                                  ],
                                 ),
+                                if (account.lastLogin != null)
+                                  Padding(
+                                    padding: const EdgeInsets.only(left: 14, top: 2),
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.cookie, size: 9, color: AppColors.surface500),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          'Session saved ${_timeAgo(account.lastLogin!)}',
+                                          style: TextStyle(fontSize: 9, color: AppColors.surface500),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                               ],
                             )
                           else
@@ -225,7 +254,8 @@ class AccountsPage extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Login sessions are stored locally on your device only. '
+                        'Login cookies are saved locally on your device only. '
+                        'Sessions persist across app restarts. '
                         'Credentials are never sent to third-party servers.',
                         style: TextStyle(fontSize: 11, color: AppColors.surface400, height: 1.4),
                       ),
@@ -278,6 +308,14 @@ class WebViewLoginPage extends StatefulWidget {
 
 class _WebViewLoginPageState extends State<WebViewLoginPage> {
   double _progress = 0;
+  bool _saving = false;
+
+  Future<void> _onDone() async {
+    setState(() => _saving = true);
+    // Save cookies from the WebView so they persist across app restarts
+    await CookieService.saveCookies(widget.platform.id);
+    if (mounted) Navigator.pop(context, true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -290,11 +328,17 @@ class _WebViewLoginPageState extends State<WebViewLoginPage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              'Done',
-              style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w600),
-            ),
+            onPressed: _saving ? null : _onDone,
+            child: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.red),
+                  )
+                : Text(
+                    'Done',
+                    style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w600),
+                  ),
           ),
         ],
       ),
