@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import '../theme/app_theme.dart';
 
@@ -129,17 +130,12 @@ class _UpdateDialogState extends State<_UpdateDialog> {
 
     final path = await UpdateService.downloadApk(
       widget.info.downloadUrl!,
-      (p) => setState(() => _progress = p),
+      (p) { if (mounted) setState(() => _progress = p); },
     );
 
     if (path != null && mounted) {
-      // Install APK via intent
-      await Process.run('am', [
-        'start',
-        '-a', 'android.intent.action.VIEW',
-        '-t', 'application/vnd.android.package-archive',
-        '-d', 'file://$path',
-      ]);
+      // Install APK via open_filex (handles FileProvider/content URI)
+      await OpenFilex.open(path, type: 'application/vnd.android.package-archive');
 
       if (mounted) Navigator.pop(context);
     } else if (mounted) {
