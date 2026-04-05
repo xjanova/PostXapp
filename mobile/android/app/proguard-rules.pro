@@ -12,3 +12,7 @@
 
 # Keep Kotlin metadata
 -keep class kotlin.Metadata { *; }
+
+# Play Core (referenced by Flutter deferred components)
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
