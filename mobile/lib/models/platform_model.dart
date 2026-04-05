@@ -61,11 +61,12 @@ class PlatformAccount {
   };
 
   factory PlatformAccount.fromJson(Map<String, dynamic> json) => PlatformAccount(
-    platformId: SocialPlatform.values.firstWhere((e) => e.name == json['platformId']),
+    platformId: SocialPlatform.values.where((e) => e.name == json['platformId']).firstOrNull
+        ?? SocialPlatform.facebook,
     username: json['username'] ?? '',
     displayName: json['displayName'] ?? '',
     isConnected: json['isConnected'] ?? false,
-    lastLogin: json['lastLogin'] != null ? DateTime.parse(json['lastLogin']) : null,
+    lastLogin: json['lastLogin'] != null ? DateTime.tryParse(json['lastLogin']) : null,
   );
 }
 

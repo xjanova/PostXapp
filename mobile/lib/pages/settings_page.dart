@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_theme.dart';
+import '../services/ai_service.dart';
 import '../widgets/glass_card.dart';
 
 class SettingsPage extends StatefulWidget {
   final Map<String, dynamic> settings;
   final Function(String key, dynamic value) onUpdate;
+  final VoidCallback? onDownloadModel;
 
   const SettingsPage({
     super.key,
     required this.settings,
     required this.onUpdate,
+    this.onDownloadModel,
   });
 
   @override
@@ -40,7 +43,6 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void didUpdateWidget(SettingsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Sync controllers if settings changed externally
     final newDelay = (widget.settings['postDelay'] as int? ?? 3000).toString();
     final newRetry = (widget.settings['retryCount'] as int? ?? 2).toString();
     if (_delayController.text != newDelay) _delayController.text = newDelay;
@@ -54,9 +56,36 @@ class _SettingsPageState extends State<SettingsPage> {
     super.dispose();
   }
 
+  Future<void> _deleteModel() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface800,
+        title: const Text('Delete AI Model'),
+        content: const Text('Remove the downloaded AI model? You can re-download it later.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Delete', style: TextStyle(color: AppColors.error)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await AiService.deleteModel();
+      if (mounted) setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final autoRetry = widget.settings['autoRetry'] as bool? ?? true;
+    final aiReady = AiService.status == AiModelStatus.ready;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -80,7 +109,102 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 20),
 
-          // Posting Behavior
+          // ── AI Model ───────────────────────────────
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.auto_awesome, size: 16, color: AppColors.surface400),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'AI Model (Gemma 4 E2B)',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // Status
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: aiReady
+                            ? AppColors.success.withValues(alpha: 0.15)
+                            : AppColors.surface700,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: aiReady
+                              ? AppColors.success.withValues(alpha: 0.4)
+                              : AppColors.surface600,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            aiReady ? Icons.check_circle : Icons.cloud_download,
+                            size: 14,
+                            color: aiReady ? AppColors.success : AppColors.surface400,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            aiReady ? 'Downloaded & Ready' : 'Not Downloaded',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: aiReady ? AppColors.success : AppColors.surface400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      AiService.modelSizeLabel,
+                      style: TextStyle(fontSize: 11, fontFamily: 'monospace', color: AppColors.surface500),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Download / Delete button
+                SizedBox(
+                  width: double.infinity,
+                  child: aiReady
+                      ? OutlinedButton.icon(
+                          onPressed: _deleteModel,
+                          icon: Icon(Icons.delete_outline, size: 16, color: AppColors.error),
+                          label: Text('Delete Model', style: TextStyle(color: AppColors.error)),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: AppColors.error.withValues(alpha: 0.3)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        )
+                      : ElevatedButton.icon(
+                          onPressed: widget.onDownloadModel,
+                          icon: const Icon(Icons.download, size: 16),
+                          label: const Text('Download Model'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.info,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'On-device AI for smart post generation, voice commands, image & video analysis.',
+                  style: TextStyle(fontSize: 11, color: AppColors.surface500, height: 1.3),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ── Posting Behavior ───────────────────────
           GlassCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,7 +325,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 16),
 
-          // About
+          // ── About ──────────────────────────────────
           GlassCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,6 +345,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 _AboutRow(label: 'Version', value: _version.isEmpty ? '...' : _version),
                 _AboutRow(label: 'Developer', value: 'xman studio'),
                 _AboutRow(label: 'Platform', value: 'Android (Flutter)'),
+                _AboutRow(label: 'AI Engine', value: 'Gemma 4 E2B (On-Device)'),
               ],
             ),
           ),

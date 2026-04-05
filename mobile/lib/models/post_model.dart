@@ -59,12 +59,14 @@ class PostHistoryEntry {
   };
 
   factory PostHistoryEntry.fromJson(Map<String, dynamic> json) => PostHistoryEntry(
-    id: json['id'],
-    text: json['text'],
+    id: json['id'] ?? '',
+    text: json['text'] ?? '',
     imagePaths: List<String>.from(json['imagePaths'] ?? []),
-    platform: SocialPlatform.values.firstWhere((e) => e.name == json['platform']),
-    status: PostStatus.values.firstWhere((e) => e.name == json['status']),
-    postedAt: DateTime.parse(json['postedAt']),
+    platform: SocialPlatform.values.where((e) => e.name == json['platform']).firstOrNull
+        ?? SocialPlatform.facebook,
+    status: PostStatus.values.where((e) => e.name == json['status']).firstOrNull
+        ?? PostStatus.error,
+    postedAt: DateTime.tryParse(json['postedAt'] ?? '') ?? DateTime.now(),
     error: json['error'],
     postUrl: json['postUrl'],
   );

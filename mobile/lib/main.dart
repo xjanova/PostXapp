@@ -3,15 +3,22 @@ import 'package:flutter/services.dart';
 import 'theme/app_theme.dart';
 import 'models/platform_model.dart';
 import 'models/post_model.dart';
+import 'models/post_target.dart';
+import 'models/scheduled_post.dart';
+import 'services/ai_service.dart';
 import 'services/cookie_service.dart';
+import 'services/scheduler_service.dart';
 import 'services/storage_service.dart';
 import 'services/update_service.dart';
 import 'pages/dashboard_page.dart';
+import 'pages/ai_compose_page.dart';
 import 'pages/compose_page.dart';
 import 'pages/accounts_page.dart';
 import 'pages/history_page.dart';
+import 'pages/schedule_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/splash_page.dart';
+import 'widgets/model_download_sheet.dart';
 import 'widgets/posting_dialog.dart';
 
 void main() {
@@ -53,10 +60,18 @@ class _MainScreenState extends State<MainScreen> {
   List<PostHistoryEntry> _history = [];
   Map<String, dynamic> _settings = {};
 
+  final GlobalKey<SchedulePageState> _scheduleKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    SchedulerService.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -73,13 +88,86 @@ class _MainScreenState extends State<MainScreen> {
     // Restore saved cookies into CookieManager so WebViews have sessions ready
     await CookieService.restoreAllCookies(_accounts);
 
+    // Initialize scheduler
+    await SchedulerService.init(onPostDue: _executeScheduledPost);
+
+    // Check AI model status
+    await AiService.checkModelStatus();
+
     _checkForUpdates();
+
+    // Show model download prompt if needed (after splash)
+    if (AiService.status == AiModelStatus.notDownloaded) {
+      // Delay to show after splash
+      Future.delayed(const Duration(milliseconds: 2500), () {
+        if (mounted && !_showSplash) _showModelDownloadSheet();
+      });
+    }
   }
 
   Future<void> _checkForUpdates() async {
     final update = await UpdateService.checkForUpdate();
     if (update != null && mounted) {
       UpdateService.showUpdateDialog(context, update);
+    }
+  }
+
+  void _showModelDownloadSheet() {
+    AiService.isOnWifi().then((isWifi) {
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => ModelDownloadSheet(
+          isWifi: isWifi,
+          onDismiss: () => Navigator.pop(context),
+          onComplete: () {
+            Navigator.pop(context);
+            if (mounted) setState(() {});
+          },
+        ),
+      );
+    });
+  }
+
+  Future<void> _executeScheduledPost(ScheduledPost post) async {
+    if (!mounted) {
+      await SchedulerService.markFailed(post.id, 'App not active');
+      return;
+    }
+
+    try {
+      final postResults = await showDialog<List<PostHistoryEntry>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PostingDialog(
+          text: post.text,
+          imagePaths: post.imagePaths,
+          platforms: post.platforms,
+          delayMs: _settings['postDelay'] as int? ?? 3000,
+        ),
+      );
+
+      if (postResults != null) {
+        _history.insertAll(0, postResults);
+        await StorageService.saveHistory(_history);
+        await SchedulerService.markCompleted(post.id, postResults);
+      } else {
+        await SchedulerService.markFailed(post.id, 'Posting cancelled');
+      }
+
+      if (mounted) {
+        setState(() {});
+        _scheduleKey.currentState?.refresh();
+      }
+    } catch (e) {
+      final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      await SchedulerService.markFailed(post.id, msg);
+      if (mounted) {
+        setState(() {});
+        _scheduleKey.currentState?.refresh();
+      }
     }
   }
 
@@ -144,6 +232,7 @@ class _MainScreenState extends State<MainScreen> {
     String text,
     List<String> images,
     Set<SocialPlatform> platforms,
+    Map<SocialPlatform, PostTarget> targets,
   ) async {
     final postDelay = _settings['postDelay'] as int? ?? 3000;
 
@@ -218,7 +307,15 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     if (_showSplash) {
       return SplashPage(
-        onDone: () => setState(() => _showSplash = false),
+        onDone: () {
+          setState(() => _showSplash = false);
+          // Show model download sheet after splash if needed
+          if (AiService.status == AiModelStatus.notDownloaded) {
+            Future.delayed(const Duration(milliseconds: 500), () {
+              if (mounted) _showModelDownloadSheet();
+            });
+          }
+        },
       );
     }
 
@@ -230,17 +327,24 @@ class _MainScreenState extends State<MainScreen> {
             DashboardPage(
               accounts: _accounts,
               history: _history,
-              onCompose: () => setState(() => _currentIndex = 1),
+              onCompose: () => setState(() => _currentIndex = 2),
+            ),
+            AiComposePage(
+              accounts: _accounts,
+              onPost: _handlePost,
+              onScheduleAdded: () => _scheduleKey.currentState?.refresh(),
             ),
             ComposePage(
               accounts: _accounts,
               onPost: _handlePost,
+              onScheduleAdded: () => _scheduleKey.currentState?.refresh(),
             ),
             AccountsPage(
               accounts: _accounts,
               onLogin: _handleLogin,
               onLogout: _handleLogout,
             ),
+            SchedulePage(key: _scheduleKey),
             HistoryPage(
               history: _history,
               onClearHistory: _handleClearHistory,
@@ -248,6 +352,7 @@ class _MainScreenState extends State<MainScreen> {
             SettingsPage(
               settings: _settings,
               onUpdate: _handleSettingsUpdate,
+              onDownloadModel: _showModelDownloadSheet,
             ),
           ],
         ),
@@ -260,7 +365,12 @@ class _MainScreenState extends State<MainScreen> {
           NavigationDestination(
             icon: Icon(Icons.dashboard_outlined),
             selectedIcon: Icon(Icons.dashboard, color: AppColors.red),
-            label: 'Dashboard',
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.auto_awesome_outlined),
+            selectedIcon: Icon(Icons.auto_awesome, color: AppColors.red),
+            label: 'AI',
           ),
           NavigationDestination(
             icon: Icon(Icons.edit_square),
@@ -271,6 +381,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.people_outline),
             selectedIcon: Icon(Icons.people, color: AppColors.red),
             label: 'Accounts',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.schedule_outlined),
+            selectedIcon: Icon(Icons.schedule, color: AppColors.red),
+            label: 'Schedule',
           ),
           NavigationDestination(
             icon: Icon(Icons.history),

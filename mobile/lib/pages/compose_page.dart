@@ -3,17 +3,28 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
 import '../models/platform_model.dart';
+import '../models/post_target.dart';
+import '../models/scheduled_post.dart';
+import '../services/scheduler_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/platform_icon.dart';
+import '../widgets/post_target_selector.dart';
 
 class ComposePage extends StatefulWidget {
   final List<PlatformAccount> accounts;
-  final Future<void> Function(String text, List<String> images, Set<SocialPlatform> platforms) onPost;
+  final Future<void> Function(
+    String text,
+    List<String> images,
+    Set<SocialPlatform> platforms,
+    Map<SocialPlatform, PostTarget> targets,
+  ) onPost;
+  final VoidCallback? onScheduleAdded;
 
   const ComposePage({
     super.key,
     required this.accounts,
     required this.onPost,
+    this.onScheduleAdded,
   });
 
   @override
@@ -24,6 +35,7 @@ class _ComposePageState extends State<ComposePage> {
   final _textController = TextEditingController();
   final _imagePicker = ImagePicker();
   final Set<SocialPlatform> _selectedPlatforms = {};
+  final Map<SocialPlatform, PostTarget> _selectedTargets = {};
   final List<String> _images = [];
   bool _isPosting = false;
 
@@ -41,6 +53,7 @@ class _ComposePageState extends State<ComposePage> {
     setState(() {
       if (_selectedPlatforms.contains(platform)) {
         _selectedPlatforms.remove(platform);
+        _selectedTargets.remove(platform);
       } else {
         _selectedPlatforms.add(platform);
       }
@@ -52,6 +65,7 @@ class _ComposePageState extends State<ComposePage> {
       final connected = _connectedAccounts.map((a) => a.platformId).toSet();
       if (connected.every((id) => _selectedPlatforms.contains(id))) {
         _selectedPlatforms.clear();
+        _selectedTargets.clear();
       } else {
         _selectedPlatforms.addAll(connected);
       }
@@ -74,16 +88,87 @@ class _ComposePageState extends State<ComposePage> {
   }
 
   Future<void> _handlePost() async {
-    if (_isPosting) return; // double-tap guard
+    if (_isPosting) return;
     if (_textController.text.trim().isEmpty || _selectedPlatforms.isEmpty) return;
 
     setState(() => _isPosting = true);
+    await widget.onPost(
+      _textController.text,
+      _images,
+      Set.of(_selectedPlatforms),
+      Map.of(_selectedTargets),
+    );
+    if (mounted) setState(() => _isPosting = false);
+  }
 
-    await widget.onPost(_textController.text, _images, Set.of(_selectedPlatforms));
+  Future<void> _schedulePost() async {
+    if (_textController.text.trim().isEmpty || _selectedPlatforms.isEmpty) return;
 
-    if (mounted) {
-      setState(() => _isPosting = false);
+    final now = DateTime.now();
+    final initialDate = now.add(const Duration(hours: 1));
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: Theme.of(context).colorScheme.copyWith(primary: AppColors.red),
+        ),
+        child: child!,
+      ),
+    );
+    if (date == null || !mounted) return;
+
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialDate),
+      builder: (context, child) => Theme(
+        data: Theme.of(context).copyWith(
+          colorScheme: Theme.of(context).colorScheme.copyWith(primary: AppColors.red),
+        ),
+        child: child!,
+      ),
+    );
+    if (time == null || !mounted) return;
+
+    final scheduledAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (scheduledAt.isBefore(DateTime.now())) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Scheduled time must be in the future'),
+          backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
     }
+
+    final post = ScheduledPost(
+      id: SchedulerService.generateId(),
+      text: _textController.text,
+      imagePaths: List.from(_images),
+      platforms: Set.of(_selectedPlatforms),
+      targets: Map.of(_selectedTargets),
+      scheduledAt: scheduledAt,
+    );
+
+    await SchedulerService.addScheduledPost(post);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Scheduled for ${_formatDateTime(scheduledAt)}'),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+
+    widget.onScheduleAdded?.call();
   }
 
   void _reset() {
@@ -91,6 +176,7 @@ class _ComposePageState extends State<ComposePage> {
       _textController.clear();
       _images.clear();
       _selectedPlatforms.clear();
+      _selectedTargets.clear();
     });
   }
 
@@ -112,7 +198,7 @@ class _ComposePageState extends State<ComposePage> {
           // Header
           Row(
             children: [
-              Icon(Icons.auto_awesome, color: AppColors.red, size: 22),
+              Icon(Icons.edit_square, color: AppColors.red, size: 22),
               const SizedBox(width: 8),
               const Text(
                 'Compose Post',
@@ -177,10 +263,13 @@ class _ComposePageState extends State<ComposePage> {
                       onTap: _pickImages,
                     ),
                     const SizedBox(width: 8),
-                    _ActionButton(
-                      icon: Icons.videocam,
-                      label: 'Add Video',
-                      onTap: () {},
+                    Opacity(
+                      opacity: 0.5,
+                      child: _ActionButton(
+                        icon: Icons.videocam,
+                        label: 'Coming Soon',
+                        onTap: () {},
+                      ),
                     ),
                   ],
                 ),
@@ -304,53 +393,99 @@ class _ComposePageState extends State<ComposePage> {
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
 
-          // Post Button
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton(
-              onPressed: (_isPosting ||
-                      _selectedPlatforms.isEmpty ||
-                      _textController.text.trim().isEmpty)
-                  ? null
-                  : _handlePost,
-              style: ElevatedButton.styleFrom(
-                backgroundColor:
-                    (_selectedPlatforms.isEmpty || _textController.text.trim().isEmpty)
-                        ? AppColors.surface700
-                        : AppColors.red,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              ),
-              child: _isPosting
-                  ? const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+          // Post Targets (for platforms with multiple targets)
+          PostTargetSelector(
+            selectedPlatforms: _selectedPlatforms,
+            selectedTargets: _selectedTargets,
+            onTargetsChanged: (targets) {
+              setState(() {
+                _selectedTargets.clear();
+                _selectedTargets.addAll(targets);
+              });
+            },
+          ),
+          if (_selectedPlatforms.any((p) => getSupportedTargets(p).length > 1))
+            const SizedBox(height: 12),
+
+          // Action Buttons
+          Row(
+            children: [
+              // Post Now
+              Expanded(
+                flex: 3,
+                child: SizedBox(
+                  height: 52,
+                  child: ElevatedButton(
+                    onPressed: (_isPosting ||
+                            _selectedPlatforms.isEmpty ||
+                            _textController.text.trim().isEmpty)
+                        ? null
+                        : _handlePost,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          (_selectedPlatforms.isEmpty || _textController.text.trim().isEmpty)
+                              ? AppColors.surface700
+                              : AppColors.red,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: _isPosting
+                        ? const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              ),
+                              SizedBox(width: 8),
+                              Text('Posting...'),
+                            ],
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.send, size: 16),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Post (${_selectedPlatforms.length})',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                            ],
                           ),
-                        ),
-                        SizedBox(width: 8),
-                        Text('Posting...'),
-                      ],
-                    )
-                  : Row(
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Schedule
+              Expanded(
+                flex: 2,
+                child: SizedBox(
+                  height: 52,
+                  child: OutlinedButton(
+                    onPressed: (_selectedPlatforms.isEmpty ||
+                            _textController.text.trim().isEmpty)
+                        ? null
+                        : _schedulePost,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.info,
+                      side: BorderSide(color: AppColors.info.withValues(alpha: 0.5)),
+                      disabledForegroundColor: AppColors.surface500,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.send, size: 16),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Post to ${_selectedPlatforms.length} Platform${_selectedPlatforms.length != 1 ? 's' : ''}',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
+                        Icon(Icons.schedule, size: 16),
+                        SizedBox(width: 6),
+                        Text('Schedule', style: TextStyle(fontWeight: FontWeight.w600)),
                       ],
                     ),
-            ),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
 
@@ -368,6 +503,11 @@ class _ComposePageState extends State<ComposePage> {
         ],
       ),
     );
+  }
+
+  String _formatDateTime(DateTime dt) {
+    return '${dt.day}/${dt.month}/${dt.year} '
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 }
 

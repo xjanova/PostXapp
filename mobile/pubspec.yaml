@@ -39,10 +39,11 @@ dependencies:
   path_provider: ^2.1.5
   image_picker: ^1.2.1
   share_plus: ^12.0.2
-  cookie_jar: ^4.0.9
   http: ^1.6.0
   open_filex: ^4.6.0
   package_info_plus: ^8.3.0
+  connectivity_plus: ^6.1.4
+  speech_to_text: ^7.0.0
 
 dev_dependencies:
   flutter_test:
@@ -54,6 +55,16 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/logo.png"
+  adaptive_icon_background: "#070B14"
+  adaptive_icon_foreground: "assets/logo.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
