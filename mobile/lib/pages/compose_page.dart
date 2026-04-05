@@ -1,14 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../theme/app_theme.dart';
 import '../models/platform_model.dart';
-import '../models/post_model.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/platform_icon.dart';
 
 class ComposePage extends StatefulWidget {
   final List<PlatformAccount> accounts;
-  final Function(String text, List<String> images, Set<SocialPlatform> platforms) onPost;
+  final Future<void> Function(String text, List<String> images, Set<SocialPlatform> platforms) onPost;
 
   const ComposePage({
     super.key,
@@ -26,7 +26,6 @@ class _ComposePageState extends State<ComposePage> {
   final Set<SocialPlatform> _selectedPlatforms = {};
   final List<String> _images = [];
   bool _isPosting = false;
-  final Map<SocialPlatform, PostStatus> _results = {};
 
   List<PlatformAccount> get _connectedAccounts =>
       widget.accounts.where((a) => a.isConnected).toList();
@@ -75,20 +74,16 @@ class _ComposePageState extends State<ComposePage> {
   }
 
   Future<void> _handlePost() async {
+    if (_isPosting) return; // double-tap guard
     if (_textController.text.trim().isEmpty || _selectedPlatforms.isEmpty) return;
 
-    setState(() {
-      _isPosting = true;
-      _results.clear();
-      for (var p in _selectedPlatforms) {
-        _results[p] = PostStatus.posting;
-      }
-    });
+    setState(() => _isPosting = true);
 
-    widget.onPost(_textController.text, _images, _selectedPlatforms);
+    await widget.onPost(_textController.text, _images, Set.of(_selectedPlatforms));
 
-    // Results will be updated from parent
-    setState(() => _isPosting = false);
+    if (mounted) {
+      setState(() => _isPosting = false);
+    }
   }
 
   void _reset() {
@@ -96,7 +91,6 @@ class _ComposePageState extends State<ComposePage> {
       _textController.clear();
       _images.clear();
       _selectedPlatforms.clear();
-      _results.clear();
     });
   }
 
@@ -219,8 +213,8 @@ class _ComposePageState extends State<ComposePage> {
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: Image.asset(
-                              entry.value,
+                            child: Image.file(
+                              File(entry.value),
                               width: 60,
                               height: 60,
                               fit: BoxFit.cover,

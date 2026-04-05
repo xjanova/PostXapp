@@ -10,6 +10,7 @@ import 'pages/compose_page.dart';
 import 'pages/accounts_page.dart';
 import 'pages/history_page.dart';
 import 'pages/settings_page.dart';
+import 'widgets/posting_dialog.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -136,29 +137,41 @@ class _MainScreenState extends State<MainScreen> {
     List<String> images,
     Set<SocialPlatform> platforms,
   ) async {
-    for (final platform in platforms) {
-      final entry = PostHistoryEntry(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
+    final postDelay = _settings['postDelay'] as int? ?? 3000;
+
+    final results = await showDialog<List<PostHistoryEntry>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PostingDialog(
         text: text,
         imagePaths: images,
-        platform: platform,
-        status: PostStatus.success,
-        postedAt: DateTime.now(),
-      );
-      _history.insert(0, entry);
-    }
-    await StorageService.saveHistory(_history);
-    if (!mounted) return;
-    setState(() {});
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Posted to ${platforms.length} platform(s)'),
-        backgroundColor: AppColors.success,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        platforms: platforms,
+        delayMs: postDelay,
       ),
     );
+
+    if (results != null && mounted) {
+      _history.insertAll(0, results);
+      await StorageService.saveHistory(_history);
+      setState(() {});
+
+      final successCount = results.where((r) => r.status == PostStatus.success).length;
+      final failCount = results.where((r) => r.status == PostStatus.error).length;
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            failCount == 0
+                ? 'Posted to $successCount platform(s)'
+                : '$successCount succeeded, $failCount failed',
+          ),
+          backgroundColor: failCount == 0 ? AppColors.success : AppColors.warning,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
   }
 
   Future<void> _handleClearHistory() async {
