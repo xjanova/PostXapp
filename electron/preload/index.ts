@@ -25,7 +25,16 @@ const api = {
     url: string,
     platformId: string
   ): Promise<{ success: boolean; cookies: object[] }> =>
-    ipcRenderer.invoke('platform:login', url, platformId)
+    ipcRenderer.invoke('platform:login', url, platformId),
+
+  // Auto updater
+  checkForUpdates: (): Promise<void> => ipcRenderer.invoke('updater:check'),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('updater:install'),
+  onUpdaterStatus: (callback: (data: unknown) => void): (() => void) => {
+    const handler = (_event: unknown, data: unknown): void => callback(data)
+    ipcRenderer.on('updater:status', handler)
+    return () => ipcRenderer.removeListener('updater:status', handler)
+  }
 }
 
 if (process.contextIsolated) {

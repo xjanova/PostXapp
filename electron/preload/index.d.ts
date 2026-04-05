@@ -15,6 +15,16 @@ interface PostXAPI {
     url: string,
     platformId: string
   ) => Promise<{ success: boolean; cookies: object[] }>
+  checkForUpdates: () => Promise<void>
+  installUpdate: () => Promise<void>
+  onUpdaterStatus: (callback: (data: UpdaterStatus) => void) => () => void
+}
+
+interface UpdaterStatus {
+  status: 'checking' | 'available' | 'up-to-date' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  percent?: number
+  message?: string
 }
 
 declare global {

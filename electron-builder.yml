@@ -10,6 +10,11 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+publish:
+  provider: github
+  owner: xjanova
+  repo: PostXapp
+  releaseType: release
 win:
   executableName: PostXApp
   icon: build/icon.png
@@ -22,6 +27,8 @@ nsis:
   shortcutName: PostX App
   uninstallDisplayName: PostX App
   createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

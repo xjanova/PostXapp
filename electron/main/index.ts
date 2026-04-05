@@ -1,12 +1,56 @@
 import { app, shell, BrowserWindow, ipcMain, session } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import Store from 'electron-store'
 
 const store = new Store()
 
 let mainWindow: BrowserWindow | null = null
 
+// ── Auto Updater ──────────────────────────────────────────────
+autoUpdater.autoDownload = true
+autoUpdater.autoInstallOnAppQuit = true
+
+function setupAutoUpdater(): void {
+  autoUpdater.on('checking-for-update', () => {
+    mainWindow?.webContents.send('updater:status', { status: 'checking' })
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'available',
+      version: info.version
+    })
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    mainWindow?.webContents.send('updater:status', { status: 'up-to-date' })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'downloading',
+      percent: Math.round(progress.percent)
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'downloaded',
+      version: info.version
+    })
+  })
+
+  autoUpdater.on('error', (err) => {
+    mainWindow?.webContents.send('updater:status', {
+      status: 'error',
+      message: err.message
+    })
+  })
+}
+
+// ── Window ────────────────────────────────────────────────────
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -42,7 +86,7 @@ function createWindow(): void {
   }
 }
 
-// Window controls
+// ── IPC: Window controls ──────────────────────────────────────
 ipcMain.on('window:minimize', () => mainWindow?.minimize())
 ipcMain.on('window:maximize', () => {
   if (mainWindow?.isMaximized()) {
@@ -54,12 +98,12 @@ ipcMain.on('window:maximize', () => {
 ipcMain.on('window:close', () => mainWindow?.close())
 ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized())
 
-// Store operations
+// ── IPC: Store ────────────────────────────────────────────────
 ipcMain.handle('store:get', (_event, key: string) => store.get(key))
 ipcMain.handle('store:set', (_event, key: string, value: unknown) => store.set(key, value))
 ipcMain.handle('store:delete', (_event, key: string) => store.delete(key))
 
-// Cookie management for platform authentication
+// ── IPC: Cookies ──────────────────────────────────────────────
 ipcMain.handle('cookies:get', async (_event, filter: Electron.CookiesGetFilter) => {
   return session.defaultSession.cookies.get(filter)
 })
@@ -72,7 +116,7 @@ ipcMain.handle('cookies:remove', async (_event, url: string, name: string) => {
   return session.defaultSession.cookies.remove(url, name)
 })
 
-// Platform login window
+// ── IPC: Platform login ───────────────────────────────────────
 ipcMain.handle('platform:login', async (_event, platformUrl: string, platformId: string) => {
   return new Promise((resolve) => {
     const loginWindow = new BrowserWindow({
@@ -90,7 +134,6 @@ ipcMain.handle('platform:login', async (_event, platformUrl: string, platformId:
     loginWindow.loadURL(platformUrl)
 
     loginWindow.on('closed', async () => {
-      // Get cookies after login window closes
       const cookies = await session.defaultSession.cookies.get({ url: platformUrl })
       resolve({
         success: cookies.length > 0,
@@ -100,6 +143,16 @@ ipcMain.handle('platform:login', async (_event, platformUrl: string, platformId:
   })
 })
 
+// ── IPC: Updater ──────────────────────────────────────────────
+ipcMain.handle('updater:check', () => {
+  autoUpdater.checkForUpdates()
+})
+
+ipcMain.handle('updater:install', () => {
+  autoUpdater.quitAndInstall(false, true)
+})
+
+// ── App lifecycle ─────────────────────────────────────────────
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.xmanstudio.postxapp')
 
@@ -108,6 +161,12 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  setupAutoUpdater()
+
+  // Check for updates after window is ready (non-dev only)
+  if (!is.dev) {
+    setTimeout(() => autoUpdater.checkForUpdates(), 3000)
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
