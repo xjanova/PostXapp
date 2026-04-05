@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* Custom scrollbar - crypto trading style */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.2);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.4);
+  }
+
+  /* Drag region for custom title bar */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@layer components {
+  /* Glass morphism card */
+  .glass-card {
+    @apply bg-surface-800/60 backdrop-blur-xl border border-surface-700/50 rounded-xl;
+  }
+
+  /* Glow button */
+  .btn-glow {
+    @apply relative overflow-hidden bg-brand-red hover:bg-brand-red-light
+           text-white font-semibold px-6 py-2.5 rounded-lg
+           transition-all duration-300 ease-out
+           shadow-lg shadow-brand-red/20 hover:shadow-brand-red/40;
+  }
+
+  .btn-glow::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent
+           -translate-x-full;
+    animation: shimmer 2s infinite;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply bg-surface-700/60 hover:bg-surface-700 text-surface-200
+           font-medium px-4 py-2 rounded-lg border border-surface-600/50
+           transition-all duration-200;
+  }
+
+  /* Platform status indicator */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-dot.connected {
+    @apply bg-emerald-400 shadow-lg shadow-emerald-400/50;
+  }
+
+  .status-dot.disconnected {
+    @apply bg-surface-500;
+  }
+
+  .status-dot.posting {
+    @apply bg-amber-400 shadow-lg shadow-amber-400/50 animate-pulse;
+  }
+
+  /* Input field */
+  .input-field {
+    @apply w-full bg-surface-900/80 border border-surface-700/60 rounded-lg
+           px-4 py-3 text-white placeholder-surface-500
+           focus:outline-none focus:border-brand-red/50 focus:ring-1 focus:ring-brand-red/30
+           transition-all duration-200;
+  }
+
+  /* Stat card like trading platforms */
+  .stat-card {
+    @apply glass-card p-4 flex flex-col gap-1;
+  }
+
+  .stat-card .stat-label {
+    @apply text-xs font-medium text-surface-400 uppercase tracking-wider;
+  }
+
+  .stat-card .stat-value {
+    @apply text-2xl font-bold text-white;
+  }
+
+  .stat-card .stat-change {
+    @apply text-xs font-medium;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-brand-red to-brand-red-light bg-clip-text text-transparent;
+  }
+
+  .border-glow {
+    @apply border border-brand-red/30 shadow-lg shadow-brand-red/10;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
