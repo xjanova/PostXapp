@@ -10,12 +10,16 @@ class CookieService {
   static final CookieManager _manager = CookieManager.instance();
 
   /// Save all cookies for a platform's domain after login.
+  ///
+  /// Always writes the prefs record — even if the cookie list is empty —
+  /// so that `validateSession` can detect "user went through the connect
+  /// flow" for platforms that persist sessions via IndexedDB / localStorage
+  /// rather than HTTP cookies (Bluesky, Telegram Web).
   static Future<void> saveCookies(SocialPlatform platform) async {
     final config = getPlatformConfig(platform);
     final url = WebUri(config.baseUrl);
 
     final cookies = await _manager.getCookies(url: url);
-    if (cookies.isEmpty) return;
 
     final list = cookies.map((c) => {
       'name': c.name,
@@ -29,6 +33,10 @@ class CookieService {
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('$_cookiePrefix${platform.name}', jsonEncode(list));
+    await prefs.setInt(
+      '${_cookiePrefix}${platform.name}_savedAt',
+      DateTime.now().millisecondsSinceEpoch,
+    );
 
     // Also save login domain cookies (some platforms use different login domains)
     final loginUri = WebUri(config.loginUrl);
@@ -113,6 +121,7 @@ class CookieService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('$_cookiePrefix${platform.name}');
     await prefs.remove('${_cookiePrefix}${platform.name}_login');
+    await prefs.remove('${_cookiePrefix}${platform.name}_savedAt');
 
     // Also clear from CookieManager
     final config = getPlatformConfig(platform);
@@ -122,17 +131,33 @@ class CookieService {
     }
   }
 
-  /// Check if a platform session is still valid by loading the page
-  /// and checking if it redirects to login.
+  /// Check if a platform session is likely still valid, based on saved
+  /// cookies.  Fast (no network).
+  ///
+  /// For most platforms this checks for the presence of a real auth
+  /// cookie. Bluesky and Telegram Web store their session in
+  /// IndexedDB/localStorage (not HTTP cookies), so we fall back to
+  /// "user went through the connect flow" detected via the _savedAt
+  /// timestamp marker.
   static Future<bool> validateSession(SocialPlatform platform) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final data = prefs.getString('$_cookiePrefix${platform.name}');
-      // No saved cookies = not logged in
+      // No saved cookies = user never completed the connect flow.
       if (data == null) return false;
 
+      // Bluesky and Telegram Web keep their session in IndexedDB/
+      // localStorage rather than HTTP cookies. If the connect flow
+      // completed (the _savedAt marker exists) we treat them as valid.
+      if (platform == SocialPlatform.bluesky ||
+          platform == SocialPlatform.telegram) {
+        return prefs.containsKey('${_cookiePrefix}${platform.name}_savedAt');
+      }
+
       final list = jsonDecode(data) as List;
-      // Check if we have meaningful cookies (not just tracking cookies)
+      if (list.isEmpty) return false;
+
+      // Check for a meaningful session cookie (not just tracking).
       final hasSessionCookie = list.any((c) {
         final name = (c['name']?.toString() ?? '').toLowerCase();
         return name.contains('session') ||
@@ -140,11 +165,14 @@ class CookieService {
             name.contains('auth') ||
             name.contains('login') ||
             name.contains('sid') ||
-            name.contains('c_user') || // Facebook
-            name.contains('auth_token') || // Twitter
-            name.contains('li_at') || // LinkedIn
-            name.contains('csrftoken') ||
-            name.contains('ds_user_id'); // Instagram
+            name.contains('c_user') ||      // Facebook user id
+            name == 'xs' ||                 // Facebook session secret
+            name == 'fr' ||                 // Facebook fr session
+            name.contains('auth_token') ||  // X / Twitter
+            name.contains('li_at') ||       // LinkedIn
+            name.contains('csrftoken') ||   // Instagram, Threads
+            name.contains('ds_user_id') ||  // Instagram, Threads
+            name.contains('stel_');         // Telegram
       });
 
       return hasSessionCookie;

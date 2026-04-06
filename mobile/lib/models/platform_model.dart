@@ -97,8 +97,9 @@ const List<PlatformConfig> allPlatforms = [
     name: 'X (Twitter)',
     icon: Icons.close, // X icon
     color: Color(0xFF9CA3AF),
-    loginUrl: 'https://mobile.twitter.com/i/flow/login',
-    baseUrl: 'https://mobile.twitter.com',
+    // mobile.twitter.com is gone — X.com is the canonical domain now.
+    loginUrl: 'https://x.com/i/flow/login',
+    baseUrl: 'https://x.com',
     maxTextLength: 280,
     supportsVideo: true,
   ),
