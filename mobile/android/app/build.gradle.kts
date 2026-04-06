@@ -24,7 +24,8 @@ android {
         applicationId = "com.xmanstudio.postxapp"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 21
+        // LiteRT-LM requires API 24+ for on-device Gemma 4 inference.
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -43,6 +44,13 @@ android {
             )
         }
     }
+
+}
+
+dependencies {
+    // On-device LLM inference for Gemma 4 E2B (.litertlm format).
+    // https://ai.google.dev/edge/litert-lm/android
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.0")
 }
 
 flutter {

@@ -10,15 +10,16 @@ enum AiModelStatus { notDownloaded, downloading, ready, error }
 
 class AiService {
   static const _channel = MethodChannel('com.postxapp/gemma');
-  static const _modelFileName = 'google_gemma-4-E2B-it-Q4_K_M.gguf';
+  static const _modelFileName = 'gemma-4-E2B-it.litertlm';
   static const _prefModelReady = 'ai_model_ready';
   static const _prefModelPath = 'ai_model_path';
 
-  // Gemma 4 E2B IT quantized (Q4_K_M) — ~3.46GB
-  // Using bartowski's public GGUF mirror (no HuggingFace auth required).
+  // Gemma 4 E2B IT — LiteRT-LM bundle (mixed 2/4/8-bit quant) — ~2.58GB
+  // Public, non-gated mirror maintained by Google's litert-community.
+  // Runs via com.google.ai.edge.litertlm:litertlm-android on device.
   static const modelDownloadUrl =
-      'https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf';
-  static const modelSizeBytes = 3715891200; // ~3.46GB actual
+      'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm';
+  static const modelSizeBytes = 2770053464; // ~2.58GB actual
   static const _minValidSizeBytes = 100 * 1024 * 1024; // 100MB — anything smaller is corrupted
 
   static AiModelStatus _status = AiModelStatus.notDownloaded;
