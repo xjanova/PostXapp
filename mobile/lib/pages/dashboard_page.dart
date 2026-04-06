@@ -9,12 +9,14 @@ class DashboardPage extends StatelessWidget {
   final List<PlatformAccount> accounts;
   final List<PostHistoryEntry> history;
   final VoidCallback onCompose;
+  final VoidCallback? onConnectAccounts;
 
   const DashboardPage({
     super.key,
     required this.accounts,
     required this.history,
     required this.onCompose,
+    this.onConnectAccounts,
   });
 
   @override
@@ -101,6 +103,39 @@ class DashboardPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
+
+          // Connect accounts CTA when none connected
+          if (connected == 0) ...[
+            GlassCard(
+              borderColor: AppColors.warning.withValues(alpha: 0.3),
+              child: Column(
+                children: [
+                  Icon(Icons.link_off, size: 28, color: AppColors.warning),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'No Accounts Connected',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Connect your social media accounts to start posting',
+                    style: TextStyle(fontSize: 12, color: AppColors.surface400),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: onConnectAccounts,
+                      icon: const Icon(Icons.login, size: 16),
+                      label: const Text('Connect Accounts'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // Platform Status
           GlassCard(

@@ -52,8 +52,10 @@ class ScheduledPost {
     final targetsMap = <SocialPlatform, PostTarget>{};
     if (json['targets'] != null) {
       (json['targets'] as Map<String, dynamic>).forEach((key, value) {
-        final platform = SocialPlatform.values.firstWhere((e) => e.name == key);
-        targetsMap[platform] = PostTarget.fromJson(value);
+        final platform = SocialPlatform.values.where((e) => e.name == key).firstOrNull;
+        if (platform != null) {
+          targetsMap[platform] = PostTarget.fromJson(value);
+        }
       });
     }
 

@@ -1,5 +1,6 @@
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../models/platform_model.dart';
+import '../models/post_target.dart';
 
 class PostResult {
   final bool success;
@@ -14,8 +15,9 @@ class AutomationService {
     SocialPlatform platform,
     String text,
     List<String> imagePaths,
-    HeadlessInAppWebView? webView,
-  ) async {
+    HeadlessInAppWebView? webView, {
+    PostTarget? target,
+  }) async {
     final config = getPlatformConfig(platform);
 
     // Truncate text to platform limit
@@ -23,27 +25,29 @@ class AutomationService {
         ? '${text.substring(0, config.maxTextLength - 3)}...'
         : text;
 
+    final hasImages = imagePaths.isNotEmpty;
+
     try {
       switch (platform) {
         case SocialPlatform.facebook:
-          return await _postToFacebook(postText, webView);
+          return await _postToFacebook(postText, webView, hasImages: hasImages);
         case SocialPlatform.twitter:
-          return await _postToTwitter(postText, webView);
+          return await _postToTwitter(postText, webView, hasImages: hasImages);
         case SocialPlatform.linkedin:
-          return await _postToLinkedIn(postText, webView);
+          return await _postToLinkedIn(postText, webView, hasImages: hasImages);
         case SocialPlatform.threads:
-          return await _postToThreads(postText, webView);
+          return await _postToThreads(postText, webView, hasImages: hasImages);
         case SocialPlatform.bluesky:
-          return await _postToBluesky(postText, webView);
+          return await _postToBluesky(postText, webView, hasImages: hasImages);
         case SocialPlatform.telegram:
-          return await _postToTelegram(postText, webView);
+          return await _postToTelegram(postText, webView, hasImages: hasImages);
         case SocialPlatform.instagram:
         case SocialPlatform.tiktok:
         case SocialPlatform.pinterest:
         case SocialPlatform.youtube:
           return PostResult(
             success: false,
-            error: '${config.name} requires native app or manual interaction for posting.',
+            error: '${config.name} requires native app for posting.',
           );
       }
     } catch (e) {
@@ -52,7 +56,7 @@ class AutomationService {
     }
   }
 
-  static Future<PostResult> _postToFacebook(String text, HeadlessInAppWebView? webView) async {
+  static Future<PostResult> _postToFacebook(String text, HeadlessInAppWebView? webView, {bool hasImages = false}) async {
     if (webView == null) {
       return PostResult(success: false, error: 'WebView not initialized');
     }
@@ -94,10 +98,14 @@ class AutomationService {
     ''');
 
     await Future.delayed(const Duration(seconds: 3));
-    return PostResult(success: true, postUrl: 'https://m.facebook.com');
+    return PostResult(
+      success: true,
+      postUrl: 'https://m.facebook.com',
+      error: hasImages ? 'Text posted; images require manual upload' : null,
+    );
   }
 
-  static Future<PostResult> _postToTwitter(String text, HeadlessInAppWebView? webView) async {
+  static Future<PostResult> _postToTwitter(String text, HeadlessInAppWebView? webView, {bool hasImages = false}) async {
     if (webView?.webViewController == null) {
       return PostResult(success: false, error: 'WebView not initialized');
     }
@@ -132,10 +140,14 @@ class AutomationService {
     ''');
 
     await Future.delayed(const Duration(seconds: 3));
-    return PostResult(success: true, postUrl: 'https://twitter.com');
+    return PostResult(
+      success: true,
+      postUrl: 'https://twitter.com',
+      error: hasImages ? 'Text posted; images require manual upload' : null,
+    );
   }
 
-  static Future<PostResult> _postToLinkedIn(String text, HeadlessInAppWebView? webView) async {
+  static Future<PostResult> _postToLinkedIn(String text, HeadlessInAppWebView? webView, {bool hasImages = false}) async {
     if (webView?.webViewController == null) {
       return PostResult(success: false, error: 'WebView not initialized');
     }
@@ -178,10 +190,14 @@ class AutomationService {
     ''');
 
     await Future.delayed(const Duration(seconds: 3));
-    return PostResult(success: true, postUrl: 'https://www.linkedin.com');
+    return PostResult(
+      success: true,
+      postUrl: 'https://www.linkedin.com',
+      error: hasImages ? 'Text posted; images require manual upload' : null,
+    );
   }
 
-  static Future<PostResult> _postToThreads(String text, HeadlessInAppWebView? webView) async {
+  static Future<PostResult> _postToThreads(String text, HeadlessInAppWebView? webView, {bool hasImages = false}) async {
     if (webView?.webViewController == null) {
       return PostResult(success: false, error: 'WebView not initialized');
     }
@@ -225,10 +241,14 @@ class AutomationService {
     ''');
 
     await Future.delayed(const Duration(seconds: 3));
-    return PostResult(success: true, postUrl: 'https://www.threads.net');
+    return PostResult(
+      success: true,
+      postUrl: 'https://www.threads.net',
+      error: hasImages ? 'Text posted; images require manual upload' : null,
+    );
   }
 
-  static Future<PostResult> _postToBluesky(String text, HeadlessInAppWebView? webView) async {
+  static Future<PostResult> _postToBluesky(String text, HeadlessInAppWebView? webView, {bool hasImages = false}) async {
     if (webView?.webViewController == null) {
       return PostResult(success: false, error: 'WebView not initialized');
     }
@@ -271,10 +291,14 @@ class AutomationService {
     ''');
 
     await Future.delayed(const Duration(seconds: 3));
-    return PostResult(success: true, postUrl: 'https://bsky.app');
+    return PostResult(
+      success: true,
+      postUrl: 'https://bsky.app',
+      error: hasImages ? 'Text posted; images require manual upload' : null,
+    );
   }
 
-  static Future<PostResult> _postToTelegram(String text, HeadlessInAppWebView? webView) async {
+  static Future<PostResult> _postToTelegram(String text, HeadlessInAppWebView? webView, {bool hasImages = false}) async {
     if (webView?.webViewController == null) {
       return PostResult(success: false, error: 'WebView not initialized');
     }
@@ -301,7 +325,11 @@ class AutomationService {
     ''');
 
     await Future.delayed(const Duration(seconds: 2));
-    return PostResult(success: true, postUrl: 'https://web.telegram.org');
+    return PostResult(
+      success: true,
+      postUrl: 'https://web.telegram.org',
+      error: hasImages ? 'Text posted; images require manual upload' : null,
+    );
   }
 
   static String _jsEscapeString(String s) {

@@ -117,7 +117,14 @@ class _AiComposePageState extends State<AiComposePage> {
           });
         }
       },
-      localeId: _language == 'th' ? 'th_TH' : _language == 'ja' ? 'ja_JP' : 'en_US',
+      localeId: switch (_language) {
+        'th' => 'th_TH',
+        'ja' => 'ja_JP',
+        'zh' => 'zh_CN',
+        'ko' => 'ko_KR',
+        'en' => 'en_US',
+        _ => null, // auto: use device default
+      },
       listenFor: const Duration(seconds: 30),
     );
   }
@@ -143,7 +150,7 @@ class _AiComposePageState extends State<AiComposePage> {
 
   Future<void> _pickVideo() async {
     final picked = await _imagePicker.pickVideo(source: ImageSource.gallery);
-    if (picked == null) return;
+    if (picked == null || !mounted) return;
 
     setState(() => _isGenerating = true);
     final description = await AiService.analyzeVideo(
@@ -188,6 +195,19 @@ class _AiComposePageState extends State<AiComposePage> {
     );
 
     if (mounted) {
+      // Don't fill output with fallback placeholder — show error instead
+      if (result.startsWith('[AI model not loaded')) {
+        setState(() => _isGenerating = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('AI model not downloaded. Go to Settings to download.'),
+            backgroundColor: AppColors.warning,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+        return;
+      }
       setState(() {
         _outputController.text = result;
         _isGenerating = false;
@@ -206,7 +226,18 @@ class _AiComposePageState extends State<AiComposePage> {
       Set.of(_selectedPlatforms),
       Map.of(_selectedTargets),
     );
-    if (mounted) setState(() => _isPosting = false);
+    if (mounted) {
+      setState(() {
+        _isPosting = false;
+        _outputController.clear();
+        _topicController.clear();
+        _images.clear();
+        _selectedPlatforms.clear();
+        _selectedTargets.clear();
+        _imageDescription = null;
+        _videoDescription = null;
+      });
+    }
   }
 
   Future<void> _schedulePost() async {
@@ -281,6 +312,8 @@ class _AiComposePageState extends State<AiComposePage> {
   }
 
   void _togglePlatform(SocialPlatform platform) {
+    final isConnected = widget.accounts.any((a) => a.platformId == platform && a.isConnected);
+    if (!isConnected) return;
     setState(() {
       if (_selectedPlatforms.contains(platform)) {
         _selectedPlatforms.remove(platform);
@@ -365,6 +398,29 @@ class _AiComposePageState extends State<AiComposePage> {
             style: TextStyle(fontSize: 13, color: AppColors.surface400),
           ),
           const SizedBox(height: 20),
+
+          if (_connectedAccounts.isEmpty) ...[
+            GlassCard(
+              borderColor: AppColors.warning.withValues(alpha: 0.3),
+              child: Column(
+                children: [
+                  Icon(Icons.link_off, size: 28, color: AppColors.warning),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No accounts connected',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.warning),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Connect at least one social media account in the Accounts tab before generating posts.',
+                    style: TextStyle(fontSize: 12, color: AppColors.surface400),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // ── Topic Input ──────────────────────────
           GlassCard(

@@ -3,6 +3,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../theme/app_theme.dart';
 import '../models/platform_model.dart';
 import '../models/post_model.dart';
+import '../models/post_target.dart';
 import '../services/automation_service.dart';
 import '../widgets/platform_icon.dart';
 
@@ -10,6 +11,7 @@ class PostingDialog extends StatefulWidget {
   final String text;
   final List<String> imagePaths;
   final Set<SocialPlatform> platforms;
+  final Map<SocialPlatform, PostTarget> targets;
   final int delayMs;
 
   const PostingDialog({
@@ -17,6 +19,7 @@ class PostingDialog extends StatefulWidget {
     required this.text,
     required this.imagePaths,
     required this.platforms,
+    this.targets = const {},
     this.delayMs = 3000,
   });
 
@@ -68,6 +71,7 @@ class _PostingDialogState extends State<PostingDialog> {
         widget.text,
         widget.imagePaths,
         _headlessWebView,
+        target: widget.targets[platform],
       );
 
       if (!mounted) return;
@@ -104,12 +108,12 @@ class _PostingDialogState extends State<PostingDialog> {
   List<PostHistoryEntry> get results {
     return _states.entries.map((e) {
       return PostHistoryEntry(
-        id: '${DateTime.now().millisecondsSinceEpoch}_${e.key.name}',
+        id: '${e.value.completedAt.millisecondsSinceEpoch}_${e.key.name}',
         text: widget.text,
         imagePaths: widget.imagePaths,
         platform: e.key,
         status: e.value.status == PostStatus.posting ? PostStatus.error : e.value.status,
-        postedAt: DateTime.now(),
+        postedAt: e.value.completedAt,
         error: e.value.error,
         postUrl: e.value.postUrl,
       );
@@ -265,8 +269,10 @@ class _PlatformPostState {
   final PostStatus status;
   final String? error;
   final String? postUrl;
+  final DateTime completedAt;
 
-  _PlatformPostState({required this.status, this.error, this.postUrl});
+  _PlatformPostState({required this.status, this.error, this.postUrl, DateTime? completedAt})
+      : completedAt = completedAt ?? DateTime.now();
 }
 
 class _StatChip extends StatelessWidget {

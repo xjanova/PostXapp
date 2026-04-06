@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/scheduled_post.dart';
-import '../models/platform_model.dart';
 import '../services/scheduler_service.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/platform_icon.dart';
@@ -17,6 +17,25 @@ class SchedulePage extends StatefulWidget {
 
 class SchedulePageState extends State<SchedulePage> {
   String _filter = 'pending'; // pending, completed
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCountdownTimer();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted && _filter == 'pending') setState(() {});
+    });
+  }
 
   void refresh() {
     if (mounted) setState(() {});
@@ -194,7 +213,7 @@ class SchedulePageState extends State<SchedulePage> {
     }
   }
 
-  void _editPost(ScheduledPost post) async {
+  Future<void> _editPost(ScheduledPost post) async {
     final date = await showDatePicker(
       context: context,
       initialDate: post.scheduledAt,

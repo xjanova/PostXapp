@@ -61,6 +61,7 @@ class _MainScreenState extends State<MainScreen> {
   Map<String, dynamic> _settings = {};
 
   final GlobalKey<SchedulePageState> _scheduleKey = GlobalKey();
+  bool _modelSheetShown = false;
 
   @override
   void initState() {
@@ -95,14 +96,6 @@ class _MainScreenState extends State<MainScreen> {
     await AiService.checkModelStatus();
 
     _checkForUpdates();
-
-    // Show model download prompt if needed (after splash)
-    if (AiService.status == AiModelStatus.notDownloaded) {
-      // Delay to show after splash
-      Future.delayed(const Duration(milliseconds: 2500), () {
-        if (mounted && !_showSplash) _showModelDownloadSheet();
-      });
-    }
   }
 
   Future<void> _checkForUpdates() async {
@@ -113,6 +106,8 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _showModelDownloadSheet() {
+    if (_modelSheetShown) return;
+    _modelSheetShown = true;
     AiService.isOnWifi().then((isWifi) {
       if (!mounted) return;
       showModalBottomSheet(
@@ -121,13 +116,17 @@ class _MainScreenState extends State<MainScreen> {
         backgroundColor: Colors.transparent,
         builder: (_) => ModelDownloadSheet(
           isWifi: isWifi,
-          onDismiss: () => Navigator.pop(context),
+          onDismiss: () {
+            Navigator.pop(context);
+          },
           onComplete: () {
             Navigator.pop(context);
             if (mounted) setState(() {});
           },
         ),
-      );
+      ).whenComplete(() {
+        _modelSheetShown = false;
+      });
     });
   }
 
@@ -145,6 +144,7 @@ class _MainScreenState extends State<MainScreen> {
           text: post.text,
           imagePaths: post.imagePaths,
           platforms: post.platforms,
+          targets: post.targets,
           delayMs: _settings['postDelay'] as int? ?? 3000,
         ),
       );
@@ -243,6 +243,7 @@ class _MainScreenState extends State<MainScreen> {
         text: text,
         imagePaths: images,
         platforms: platforms,
+        targets: targets,
         delayMs: postDelay,
       ),
     );
@@ -328,6 +329,7 @@ class _MainScreenState extends State<MainScreen> {
               accounts: _accounts,
               history: _history,
               onCompose: () => setState(() => _currentIndex = 2),
+              onConnectAccounts: () => setState(() => _currentIndex = 3),
             ),
             AiComposePage(
               accounts: _accounts,

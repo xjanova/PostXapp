@@ -52,8 +52,11 @@ class UpdateService {
   }
 
   static bool _isNewerVersion(String remote, String current) {
-    final remoteParts = remote.split('.').map(int.parse).toList();
-    final currentParts = current.split('.').map(int.parse).toList();
+    // Strip pre-release suffixes (e.g. "1.0.0-beta" → "1.0.0")
+    final remoteClean = remote.split('-').first;
+    final currentClean = current.split('-').first;
+    final remoteParts = remoteClean.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+    final currentParts = currentClean.split('.').map((s) => int.tryParse(s) ?? 0).toList();
 
     for (int i = 0; i < 3; i++) {
       final r = i < remoteParts.length ? remoteParts[i] : 0;

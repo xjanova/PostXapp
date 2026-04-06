@@ -74,9 +74,21 @@ class _HistoryPageState extends State<HistoryPage> {
                 ),
                 child: Row(
                   children: [
-                    _FilterTab(label: 'All', isActive: _filter == 'all', onTap: () => setState(() => _filter = 'all')),
-                    _FilterTab(label: 'Success', isActive: _filter == 'success', onTap: () => setState(() => _filter = 'success')),
-                    _FilterTab(label: 'Failed', isActive: _filter == 'error', onTap: () => setState(() => _filter = 'error')),
+                    _FilterTab(
+                      label: 'All (${widget.history.length})',
+                      isActive: _filter == 'all',
+                      onTap: () => setState(() => _filter = 'all'),
+                    ),
+                    _FilterTab(
+                      label: 'Success (${widget.history.where((h) => h.status == PostStatus.success).length})',
+                      isActive: _filter == 'success',
+                      onTap: () => setState(() => _filter = 'success'),
+                    ),
+                    _FilterTab(
+                      label: 'Failed (${widget.history.where((h) => h.status == PostStatus.error).length})',
+                      isActive: _filter == 'error',
+                      onTap: () => setState(() => _filter = 'error'),
+                    ),
                   ],
                 ),
               ),

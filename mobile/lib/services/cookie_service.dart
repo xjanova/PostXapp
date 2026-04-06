@@ -70,23 +70,32 @@ class CookieService {
     final data = prefs.getString(key);
     if (data == null) return;
 
-    final list = jsonDecode(data) as List;
+    final List list;
+    try {
+      list = jsonDecode(data) as List;
+    } catch (_) {
+      return; // Malformed JSON — skip
+    }
     final url = WebUri(urlStr);
 
     for (final item in list) {
-      final map = item as Map<String, dynamic>;
-      await _manager.setCookie(
-        url: url,
-        name: map['name'],
-        value: map['value'],
-        domain: map['domain'],
-        path: map['path'] ?? '/',
-        isSecure: map['isSecure'] ?? true,
-        isHttpOnly: map['isHttpOnly'] ?? false,
-        expiresDate: map['expiresDate'] != null
-            ? (map['expiresDate'] as num).toInt()
-            : null,
-      );
+      try {
+        final map = item as Map<String, dynamic>;
+        await _manager.setCookie(
+          url: url,
+          name: map['name'],
+          value: map['value'],
+          domain: map['domain'],
+          path: map['path'] ?? '/',
+          isSecure: map['isSecure'] ?? true,
+          isHttpOnly: map['isHttpOnly'] ?? false,
+          expiresDate: map['expiresDate'] != null
+              ? (map['expiresDate'] as num).toInt()
+              : null,
+        );
+      } catch (_) {
+        // Skip malformed cookie entry
+      }
     }
   }
 
@@ -116,28 +125,32 @@ class CookieService {
   /// Check if a platform session is still valid by loading the page
   /// and checking if it redirects to login.
   static Future<bool> validateSession(SocialPlatform platform) async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = prefs.getString('$_cookiePrefix${platform.name}');
-    // No saved cookies = not logged in
-    if (data == null) return false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final data = prefs.getString('$_cookiePrefix${platform.name}');
+      // No saved cookies = not logged in
+      if (data == null) return false;
 
-    final list = jsonDecode(data) as List;
-    // Check if we have meaningful cookies (not just tracking cookies)
-    final hasSessionCookie = list.any((c) {
-      final name = (c['name'] as String).toLowerCase();
-      return name.contains('session') ||
-          name.contains('token') ||
-          name.contains('auth') ||
-          name.contains('login') ||
-          name.contains('sid') ||
-          name.contains('c_user') || // Facebook
-          name.contains('auth_token') || // Twitter
-          name.contains('li_at') || // LinkedIn
-          name.contains('csrftoken') ||
-          name.contains('ds_user_id'); // Instagram
-    });
+      final list = jsonDecode(data) as List;
+      // Check if we have meaningful cookies (not just tracking cookies)
+      final hasSessionCookie = list.any((c) {
+        final name = (c['name']?.toString() ?? '').toLowerCase();
+        return name.contains('session') ||
+            name.contains('token') ||
+            name.contains('auth') ||
+            name.contains('login') ||
+            name.contains('sid') ||
+            name.contains('c_user') || // Facebook
+            name.contains('auth_token') || // Twitter
+            name.contains('li_at') || // LinkedIn
+            name.contains('csrftoken') ||
+            name.contains('ds_user_id'); // Instagram
+      });
 
-    return hasSessionCookie;
+      return hasSessionCookie;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Check if saved cookies exist (quick check, no network).

@@ -247,7 +247,12 @@ class _SettingsPageState extends State<SettingsPage> {
                         keyboardType: TextInputType.number,
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 13, color: Colors.white),
-                        onSubmitted: (v) => widget.onUpdate('postDelay', int.tryParse(v) ?? 3000),
+                        onSubmitted: (v) {
+                          final val = int.tryParse(v) ?? 3000;
+                          final clamped = val.clamp(500, 30000);
+                          _delayController.text = clamped.toString();
+                          widget.onUpdate('postDelay', clamped);
+                        },
                         decoration: const InputDecoration(
                           contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                         ),
@@ -311,7 +316,12 @@ class _SettingsPageState extends State<SettingsPage> {
                           keyboardType: TextInputType.number,
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 13, color: Colors.white),
-                          onSubmitted: (v) => widget.onUpdate('retryCount', int.tryParse(v) ?? 2),
+                          onSubmitted: (v) {
+                            final val = int.tryParse(v) ?? 2;
+                            final clamped = val.clamp(0, 10);
+                            _retryController.text = clamped.toString();
+                            widget.onUpdate('retryCount', clamped);
+                          },
                           decoration: const InputDecoration(
                             contentPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                           ),

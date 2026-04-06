@@ -1,6 +1,5 @@
 import 'dart:async';
 import '../models/scheduled_post.dart';
-import '../models/platform_model.dart';
 import '../models/post_model.dart';
 import 'storage_service.dart';
 
@@ -25,6 +24,17 @@ class SchedulerService {
   }) async {
     _onPostDue = onPostDue;
     _scheduledPosts = await StorageService.loadScheduledPosts();
+
+    // Recover posts stuck in 'posting' from a previous crash/kill
+    bool dirty = false;
+    for (final post in _scheduledPosts) {
+      if (post.status == ScheduleStatus.posting) {
+        post.status = ScheduleStatus.pending;
+        dirty = true;
+      }
+    }
+    if (dirty) await _save();
+
     _startTimer();
   }
 

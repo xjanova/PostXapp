@@ -28,10 +28,10 @@ class ComposePage extends StatefulWidget {
   });
 
   @override
-  State<ComposePage> createState() => _ComposePageState();
+  State<ComposePage> createState() => ComposePageState();
 }
 
-class _ComposePageState extends State<ComposePage> {
+class ComposePageState extends State<ComposePage> {
   final _textController = TextEditingController();
   final _imagePicker = ImagePicker();
   final Set<SocialPlatform> _selectedPlatforms = {};
@@ -50,6 +50,8 @@ class _ComposePageState extends State<ComposePage> {
   }
 
   void _togglePlatform(SocialPlatform platform) {
+    final isConnected = widget.accounts.any((a) => a.platformId == platform && a.isConnected);
+    if (!isConnected) return;
     setState(() {
       if (_selectedPlatforms.contains(platform)) {
         _selectedPlatforms.remove(platform);
@@ -98,7 +100,10 @@ class _ComposePageState extends State<ComposePage> {
       Set.of(_selectedPlatforms),
       Map.of(_selectedTargets),
     );
-    if (mounted) setState(() => _isPosting = false);
+    if (mounted) {
+      setState(() => _isPosting = false);
+      _reset();
+    }
   }
 
   Future<void> _schedulePost() async {
@@ -212,6 +217,29 @@ class _ComposePageState extends State<ComposePage> {
             style: TextStyle(fontSize: 13, color: AppColors.surface400),
           ),
           const SizedBox(height: 20),
+
+          if (_connectedAccounts.isEmpty) ...[
+            GlassCard(
+              borderColor: AppColors.warning.withValues(alpha: 0.3),
+              child: Column(
+                children: [
+                  Icon(Icons.link_off, size: 28, color: AppColors.warning),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No accounts connected',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.warning),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Connect at least one social media account in the Accounts tab to start posting.',
+                    style: TextStyle(fontSize: 12, color: AppColors.surface400),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // Text Input
           GlassCard(

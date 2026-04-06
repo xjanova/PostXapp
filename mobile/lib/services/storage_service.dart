@@ -18,7 +18,15 @@ class StorageService {
     final data = prefs.getString(_accountsKey);
     if (data == null) return [];
     final list = jsonDecode(data) as List;
-    return list.map((e) => PlatformAccount.fromJson(e)).toList();
+    final results = <PlatformAccount>[];
+    for (final e in list) {
+      try {
+        results.add(PlatformAccount.fromJson(e));
+      } catch (_) {
+        // Skip malformed entries
+      }
+    }
+    return results;
   }
 
   static Future<void> saveAccounts(List<PlatformAccount> accounts) async {
@@ -35,7 +43,15 @@ class StorageService {
     final data = prefs.getString(_historyKey);
     if (data == null) return [];
     final list = jsonDecode(data) as List;
-    return list.map((e) => PostHistoryEntry.fromJson(e)).toList();
+    final results = <PostHistoryEntry>[];
+    for (final e in list) {
+      try {
+        results.add(PostHistoryEntry.fromJson(e));
+      } catch (_) {
+        // Skip malformed entries
+      }
+    }
+    return results;
   }
 
   static Future<void> saveHistory(List<PostHistoryEntry> history) async {

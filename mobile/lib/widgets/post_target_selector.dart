@@ -245,7 +245,7 @@ class _PlatformTargetRow extends StatelessWidget {
             children: [
               // Type selector
               DropdownButtonFormField<PostTargetType>(
-                value: selectedType,
+                initialValue: selectedType,
                 dropdownColor: AppColors.surface700,
                 decoration: const InputDecoration(
                   labelText: 'Type',
