@@ -259,8 +259,10 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                     const SizedBox(height: 6),
                     Text(
                       _error == 'install_failed'
-                          ? 'This is usually caused by a signing conflict. '
-                            'Please uninstall the current version first, then download and install the new APK.'
+                          ? 'This is caused by a signing-key change in this '
+                            'release. Uninstall the current PostX app, then '
+                            'install this new APK. From the next update '
+                            'onwards installs will work without uninstalling.'
                           : 'Check your internet connection and try again.',
                       style: TextStyle(fontSize: 11, color: AppColors.surface300, height: 1.4),
                     ),
