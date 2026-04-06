@@ -78,8 +78,11 @@ class GemmaModelHandler {
             ?: throw IllegalStateException("Model not loaded. Call loadModel first.")
 
         return currentEngine.createConversation(ConversationConfig()).use { conversation ->
+            // LiteRT-LM 0.10's Message.toString() returns the generated text
+            // directly (the official Kotlin docs use `print(sendMessage(...))`
+            // and `print(it.toString())` to display the response).
             val message = conversation.sendMessage(prompt)
-            message.text.trim()
+            message.toString().trim()
         }
     }
 
