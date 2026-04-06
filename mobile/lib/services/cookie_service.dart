@@ -147,11 +147,12 @@ class CookieService {
       if (data == null) return false;
 
       // Bluesky and Telegram Web keep their session in IndexedDB/
-      // localStorage rather than HTTP cookies. If the connect flow
-      // completed (the _savedAt marker exists) we treat them as valid.
+      // localStorage rather than HTTP cookies. We already know a
+      // prefs record exists (checked above), which means the user
+      // went through the connect flow — treat them as valid.
       if (platform == SocialPlatform.bluesky ||
           platform == SocialPlatform.telegram) {
-        return prefs.containsKey('${_cookiePrefix}${platform.name}_savedAt');
+        return true;
       }
 
       final list = jsonDecode(data) as List;
