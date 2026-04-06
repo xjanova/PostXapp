@@ -12,3 +12,10 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Exception: the committed release.keystore is intentionally tracked so
+# every CI build signs APKs with the same key (otherwise GitHub Actions
+# generates a fresh ephemeral debug key per run, breaking app updates
+# with "package conflict"). The password is intentionally not secret —
+# this keystore only proves "same source", not anything sensitive.
+!app/release.keystore

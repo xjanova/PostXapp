@@ -31,11 +31,35 @@ android {
         versionName = flutter.versionName
     }
 
+    // Stable release signing — generated once via the
+    // init-release-keystore workflow and committed to the repo so every
+    // CI build uses the same key. Without this, GitHub Actions runners
+    // generate a fresh ephemeral debug.keystore on every build, causing
+    // "package conflict" install failures whenever a user tries to
+    // update over a previously installed APK.
+    signingConfigs {
+        create("release") {
+            val keystoreFile = file("release.keystore")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = "postxapp"
+                keyAlias = "postxapp"
+                keyPassword = "postxapp"
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Use the committed release keystore when present so every
+            // build is signed with the same key. Falls back to the
+            // ephemeral debug key only during first-time bootstrap.
+            val releaseKeystore = file("release.keystore")
+            signingConfig = if (releaseKeystore.exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
