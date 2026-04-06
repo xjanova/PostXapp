@@ -72,6 +72,16 @@ class AiService {
   }
 
   /// Download the model with progress callback.
+  ///
+  /// Resumable: if a partial `.tmp` file exists from a previous failed
+  /// attempt, the download continues from that byte offset using an
+  /// HTTP `Range` header. The temp file is intentionally NOT deleted on
+  /// network failures so that retrying picks up where it left off.
+  ///
+  /// Auto-retries on `ClientException` / `SocketException` /
+  /// `TimeoutException` with exponential backoff (1s, 2s, 4s … capped
+  /// at 60s) up to [maxAttempts] times. Only HTTP 4xx (except 408/429)
+  /// and validation errors fail fast.
   static Future<bool> downloadModel({
     required void Function(double progress, String statusText) onProgress,
     required void Function(String error) onError,
@@ -81,101 +91,218 @@ class AiService {
     _status = AiModelStatus.downloading;
     _downloadProgress = 0.0;
 
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final filePath = '${dir.path}/$_modelFileName';
-      final tempPath = '$filePath.tmp';
-      final file = File(tempPath);
+    const maxAttempts = 8;
+    var attempt = 0;
+    Object? lastError;
 
-      _httpClient = http.Client();
-      final request = http.Request('GET', Uri.parse(modelDownloadUrl));
-      // HuggingFace may block requests without a User-Agent
-      request.headers['User-Agent'] = 'PostXApp/1.0 (Android; Flutter)';
-      request.headers['Accept'] = '*/*';
-      final response = await _httpClient!.send(request).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw Exception('Connection timeout. Check your internet and try again.');
-        },
-      );
+    final dir = await getApplicationDocumentsDirectory();
+    final filePath = '${dir.path}/$_modelFileName';
+    final tempPath = '$filePath.tmp';
 
-      if (response.statusCode != 200) {
-        final msg = switch (response.statusCode) {
-          401 || 403 => 'Access denied. The model server requires authentication.',
-          404 => 'Model file not found on server. The download URL may be outdated.',
-          429 => 'Too many requests. Please wait a few minutes and try again.',
-          >= 500 => 'Model server error (HTTP ${response.statusCode}). Try again later.',
-          _ => 'Download failed: HTTP ${response.statusCode}',
-        };
-        throw Exception(msg);
+    while (attempt < maxAttempts) {
+      attempt++;
+      final isCancelled = _httpClient == null && attempt > 1;
+      if (isCancelled) {
+        // Cancellation requested between retries.
+        _status = AiModelStatus.notDownloaded;
+        _downloadProgress = 0.0;
+        return false;
       }
-
-      final totalBytes = response.contentLength ?? modelSizeBytes;
-      var receivedBytes = 0;
-      final sink = file.openWrite();
 
       try {
-        await for (final chunk in response.stream) {
-          // Allow cancellation mid-stream
-          if (_httpClient == null) {
-            await sink.close();
-            if (await File(tempPath).exists()) {
-              await File(tempPath).delete();
-            }
-            _status = AiModelStatus.notDownloaded;
-            _downloadProgress = 0.0;
-            return false;
+        // Resume support: if a previous attempt left a partial file,
+        // pick up where it stopped.
+        var startBytes = 0;
+        final tempFile = File(tempPath);
+        if (await tempFile.exists()) {
+          startBytes = await tempFile.length();
+          if (startBytes >= modelSizeBytes) {
+            // Already-complete temp file from a previous failed rename.
+            // Treat as fresh and let the validation step finish it.
+            startBytes = 0;
+            await tempFile.delete();
           }
-          sink.add(chunk);
-          receivedBytes += chunk.length;
-          _downloadProgress = receivedBytes / totalBytes;
-
-          final mbReceived = (receivedBytes / 1024 / 1024).toStringAsFixed(0);
-          final mbTotal = (totalBytes / 1024 / 1024).toStringAsFixed(0);
-          onProgress(_downloadProgress, '$mbReceived / $mbTotal MB');
         }
-      } finally {
-        await sink.close();
-      }
-      _httpClient = null;
 
-      // Validate downloaded file size — a few KB usually means HTML error page
-      final downloadedSize = await File(tempPath).length();
-      if (downloadedSize < _minValidSizeBytes) {
-        await File(tempPath).delete();
-        throw Exception(
-          'Downloaded file is too small (${(downloadedSize / 1024).toStringAsFixed(0)} KB). '
-          'The server may have returned an error page instead of the model.',
+        _httpClient = http.Client();
+        final request = http.Request('GET', Uri.parse(modelDownloadUrl));
+        request.headers['User-Agent'] = 'PostXApp/1.0 (Android; Flutter)';
+        request.headers['Accept'] = '*/*';
+        if (startBytes > 0) {
+          request.headers['Range'] = 'bytes=$startBytes-';
+        }
+
+        final response = await _httpClient!.send(request).timeout(
+          const Duration(seconds: 60),
+          onTimeout: () {
+            throw const SocketException(
+                'Connection timeout while opening download stream.');
+          },
         );
+
+        // 206 = partial content (resume succeeded), 200 = full content
+        // (server ignored Range or this was a fresh start).
+        final isResume = response.statusCode == 206;
+        final isFresh = response.statusCode == 200;
+
+        if (response.statusCode == 416) {
+          // Range Not Satisfiable: temp file may be larger than the
+          // remote object. Reset and try again from scratch.
+          if (await tempFile.exists()) await tempFile.delete();
+          _httpClient = null;
+          continue;
+        }
+
+        if (!isResume && !isFresh) {
+          final code = response.statusCode;
+          // 408 / 429 / 5xx are transient — let the retry loop handle them.
+          if (code == 408 || code == 429 || code >= 500) {
+            throw http.ClientException(
+              'Server returned HTTP $code (transient). Retrying.',
+              Uri.parse(modelDownloadUrl),
+            );
+          }
+          // Anything else (401/403/404 etc.) is fatal.
+          final msg = switch (code) {
+            401 || 403 =>
+              'Access denied. The model server requires authentication.',
+            404 => 'Model file not found on server. The download URL may be outdated.',
+            _ => 'Download failed: HTTP $code',
+          };
+          throw Exception(msg);
+        }
+
+        // If the server returned 200 even though we asked for a range,
+        // it means it doesn't support partial content for this URL.
+        // Discard the partial file and start over.
+        if (isFresh && startBytes > 0) {
+          if (await tempFile.exists()) await tempFile.delete();
+          startBytes = 0;
+        }
+
+        final contentLength = response.contentLength;
+        final totalBytes = contentLength != null
+            ? startBytes + contentLength
+            : modelSizeBytes;
+
+        var receivedBytes = startBytes;
+        final sink = tempFile.openWrite(
+          mode: startBytes > 0 ? FileMode.append : FileMode.write,
+        );
+
+        try {
+          await for (final chunk in response.stream) {
+            // Allow cancellation mid-stream.
+            if (_httpClient == null) {
+              await sink.close();
+              // Don't delete the temp file — keep it for resume next time.
+              _status = AiModelStatus.notDownloaded;
+              _downloadProgress = 0.0;
+              return false;
+            }
+            sink.add(chunk);
+            receivedBytes += chunk.length;
+            _downloadProgress = receivedBytes / totalBytes;
+
+            final mbReceived = (receivedBytes / 1024 / 1024).toStringAsFixed(0);
+            final mbTotal = (totalBytes / 1024 / 1024).toStringAsFixed(0);
+            onProgress(_downloadProgress, '$mbReceived / $mbTotal MB');
+          }
+        } finally {
+          await sink.close();
+        }
+        _httpClient = null;
+
+        // Validate downloaded file size — a few KB usually means HTML
+        // error page rather than a real model bundle.
+        final downloadedSize = await tempFile.length();
+        if (downloadedSize < _minValidSizeBytes) {
+          await tempFile.delete();
+          throw Exception(
+            'Downloaded file is too small '
+            '(${(downloadedSize / 1024).toStringAsFixed(0)} KB). '
+            'The server may have returned an error page instead of the model.',
+          );
+        }
+
+        // Success — promote temp to final and persist.
+        await tempFile.rename(filePath);
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_prefModelPath, filePath);
+        await prefs.setBool(_prefModelReady, true);
+
+        _modelPath = filePath;
+        _status = AiModelStatus.ready;
+        _downloadProgress = 1.0;
+        return true;
+      } on http.ClientException catch (e) {
+        // Connection dropped mid-stream — most common failure mode on
+        // mobile networks. Retry with backoff, keeping the temp file
+        // so the next attempt resumes via Range.
+        lastError = e;
+        _httpClient = null;
+        if (attempt >= maxAttempts) break;
+        await _backoff(attempt, maxAttempts, onProgress);
+      } on SocketException catch (e) {
+        // DNS / connect / read timeout. Same retry treatment.
+        lastError = e;
+        _httpClient = null;
+        if (attempt >= maxAttempts) break;
+        await _backoff(attempt, maxAttempts, onProgress);
+      } on TimeoutException catch (e) {
+        lastError = e;
+        _httpClient = null;
+        if (attempt >= maxAttempts) break;
+        await _backoff(attempt, maxAttempts, onProgress);
+      } catch (e) {
+        // Fatal error — don't retry, but DO keep the temp file so the
+        // user can retry manually later (e.g. after fixing access).
+        _status = AiModelStatus.error;
+        _downloadProgress = 0.0;
+        _httpClient = null;
+        final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        onError(msg);
+        return false;
       }
+    }
 
-      // Rename temp to final
-      await File(tempPath).rename(filePath);
+    // Out of retries.
+    _status = AiModelStatus.error;
+    _downloadProgress = 0.0;
+    _httpClient = null;
+    final err = lastError;
+    final friendly = err is SocketException
+        ? 'Network error: ${err.message}'
+        : err is http.ClientException
+            ? 'Connection lost: ${err.message}'
+            : err?.toString() ?? 'Unknown error';
+    onError(
+      'Download failed after $maxAttempts attempts. $friendly\n'
+      'Your progress is saved — tap Retry to resume from where it stopped.',
+    );
+    return false;
+  }
 
-      // Save path
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefModelPath, filePath);
-      await prefs.setBool(_prefModelReady, true);
-
-      _modelPath = filePath;
-      _status = AiModelStatus.ready;
-      _downloadProgress = 1.0;
-      return true;
-    } catch (e) {
-      _status = AiModelStatus.error;
-      _downloadProgress = 0.0;
-      _httpClient = null;
-
-      // Clean up temp file
-      final dir = await getApplicationDocumentsDirectory();
-      final tempFile = File('${dir.path}/$_modelFileName.tmp');
-      if (await tempFile.exists()) {
-        await tempFile.delete();
+  /// Sleep with exponential backoff between download retries, surfacing
+  /// the wait to the UI so the user knows we're still alive.
+  static Future<void> _backoff(
+    int attempt,
+    int maxAttempts,
+    void Function(double progress, String statusText) onProgress,
+  ) async {
+    final seconds = (1 << (attempt - 1)).clamp(1, 60);
+    for (var remaining = seconds; remaining > 0; remaining--) {
+      if (_httpClient == null && attempt > 1) {
+        // Honour cancellation during backoff sleep.
+        return;
       }
-
-      final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
-      onError(msg);
-      return false;
+      onProgress(
+        _downloadProgress,
+        'Connection lost — retrying in ${remaining}s '
+        '(attempt $attempt/$maxAttempts)',
+      );
+      await Future<void>.delayed(const Duration(seconds: 1));
     }
   }
 
