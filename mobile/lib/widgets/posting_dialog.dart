@@ -5,6 +5,7 @@ import '../models/platform_model.dart';
 import '../models/post_model.dart';
 import '../models/post_target.dart';
 import '../services/automation_service.dart';
+import '../services/human_behavior.dart';
 import '../widgets/platform_icon.dart';
 
 class PostingDialog extends StatefulWidget {
@@ -42,12 +43,15 @@ class _PostingDialogState extends State<PostingDialog> {
   }
 
   Future<void> _startPosting() async {
+    // Pick a random UA for this whole posting session (not per-post).
+    // Per-session keeps the device "fingerprint" consistent across platforms.
+    final sessionUserAgent = HumanBehavior.randomUserAgent();
+
     // Create headless webview
     _headlessWebView = HeadlessInAppWebView(
       initialUrlRequest: URLRequest(url: WebUri('about:blank')),
       initialSettings: InAppWebViewSettings(
-        userAgent:
-            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        userAgent: sessionUserAgent,
         javaScriptEnabled: true,
         domStorageEnabled: true,
         databaseEnabled: true,
@@ -84,9 +88,10 @@ class _PostingDialogState extends State<PostingDialog> {
         );
       });
 
-      // Delay between platforms (skip after last)
-      if (i < platforms.length - 1 && widget.delayMs > 0) {
-        await Future.delayed(Duration(milliseconds: widget.delayMs));
+      // Human-style jittered delay between platforms (skip after last).
+      // Uses the user's configured base delay ±30% jitter, minimum 2s.
+      if (i < platforms.length - 1) {
+        await HumanBehavior.betweenPlatforms(widget.delayMs);
       }
     }
 

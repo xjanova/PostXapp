@@ -68,12 +68,20 @@ class StorageService {
     final data = prefs.getString(_settingsKey);
     if (data == null) {
       return {
-        'postDelay': 3000,
+        // 10s base delay between platforms — HumanBehavior adds ±30%
+        // jitter on top, giving a realistic 7-13s gap per platform.
+        'postDelay': 10000,
         'autoRetry': true,
         'retryCount': 2,
       };
     }
-    return jsonDecode(data);
+    final map = Map<String, dynamic>.from(jsonDecode(data));
+    // Back-fill defaults for any missing keys (older users who upgraded
+    // from a version with fewer settings).
+    map.putIfAbsent('postDelay', () => 10000);
+    map.putIfAbsent('autoRetry', () => true);
+    map.putIfAbsent('retryCount', () => 2);
+    return map;
   }
 
   static Future<void> saveSettings(Map<String, dynamic> settings) async {

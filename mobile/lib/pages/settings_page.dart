@@ -32,7 +32,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    final postDelay = widget.settings['postDelay'] as int? ?? 3000;
+    final postDelay = widget.settings['postDelay'] as int? ?? 10000;
     final retryCount = widget.settings['retryCount'] as int? ?? 2;
     _delayController = TextEditingController(text: postDelay.toString());
     _retryController = TextEditingController(text: retryCount.toString());
@@ -47,7 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void didUpdateWidget(SettingsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final newDelay = (widget.settings['postDelay'] as int? ?? 3000).toString();
+    final newDelay = (widget.settings['postDelay'] as int? ?? 10000).toString();
     final newRetry = (widget.settings['retryCount'] as int? ?? 2).toString();
     if (_delayController.text != newDelay) _delayController.text = newDelay;
     if (_retryController.text != newRetry) _retryController.text = newRetry;
@@ -263,7 +263,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            'Wait time between platforms (ms)',
+                            'Base wait (ms) — ±30% random jitter added',
                             style: TextStyle(fontSize: 11, color: AppColors.surface500),
                           ),
                         ],
@@ -277,8 +277,10 @@ class _SettingsPageState extends State<SettingsPage> {
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontSize: 13, color: Colors.white),
                         onSubmitted: (v) {
-                          final val = int.tryParse(v) ?? 3000;
-                          final clamped = val.clamp(500, 30000);
+                          final val = int.tryParse(v) ?? 10000;
+                          // 2s floor (HumanBehavior enforces this anyway),
+                          // 60s ceiling for extra-safe "spread out" posting.
+                          final clamped = val.clamp(2000, 60000);
                           _delayController.text = clamped.toString();
                           widget.onUpdate('postDelay', clamped);
                         },

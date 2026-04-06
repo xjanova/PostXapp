@@ -62,6 +62,7 @@ class _MainScreenState extends State<MainScreen> {
 
   final GlobalKey<SchedulePageState> _scheduleKey = GlobalKey();
   bool _modelSheetShown = false;
+  bool _postingInProgress = false;
 
   @override
   void initState() {
@@ -139,6 +140,16 @@ class _MainScreenState extends State<MainScreen> {
       return;
     }
 
+    // Soft mutex: if the user is already posting manually, defer this
+    // scheduled post to the next 30s scheduler tick rather than stacking
+    // a second dialog on top. revertToPending lets the scheduler pick it
+    // up again on the next check cycle.
+    if (_postingInProgress) {
+      await SchedulerService.revertToPending(post.id);
+      return;
+    }
+    _postingInProgress = true;
+
     try {
       final postResults = await showDialog<List<PostHistoryEntry>>(
         context: context,
@@ -148,7 +159,7 @@ class _MainScreenState extends State<MainScreen> {
           imagePaths: post.imagePaths,
           platforms: post.platforms,
           targets: post.targets,
-          delayMs: _settings['postDelay'] as int? ?? 3000,
+          delayMs: _settings['postDelay'] as int? ?? 10000,
         ),
       );
 
@@ -171,6 +182,8 @@ class _MainScreenState extends State<MainScreen> {
         setState(() {});
         _scheduleKey.currentState?.refresh();
       }
+    } finally {
+      _postingInProgress = false;
     }
   }
 
@@ -237,41 +250,57 @@ class _MainScreenState extends State<MainScreen> {
     Set<SocialPlatform> platforms,
     Map<SocialPlatform, PostTarget> targets,
   ) async {
-    final postDelay = _settings['postDelay'] as int? ?? 3000;
-
-    final results = await showDialog<List<PostHistoryEntry>>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => PostingDialog(
-        text: text,
-        imagePaths: images,
-        platforms: platforms,
-        targets: targets,
-        delayMs: postDelay,
-      ),
-    );
-
-    if (results != null && mounted) {
-      _history.insertAll(0, results);
-      await StorageService.saveHistory(_history);
-      setState(() {});
-
-      final successCount = results.where((r) => r.status == PostStatus.success).length;
-      final failCount = results.where((r) => r.status == PostStatus.error).length;
-
-      if (!mounted) return;
+    // Don't stack a manual post on top of an in-flight scheduled one.
+    if (_postingInProgress) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            failCount == 0
-                ? 'Posted to $successCount platform(s)'
-                : '$successCount succeeded, $failCount failed',
-          ),
-          backgroundColor: failCount == 0 ? AppColors.success : AppColors.warning,
+        const SnackBar(
+          content: Text('A post is already in progress. Please wait.'),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
+      return;
+    }
+    _postingInProgress = true;
+
+    final postDelay = _settings['postDelay'] as int? ?? 10000;
+
+    try {
+      final results = await showDialog<List<PostHistoryEntry>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PostingDialog(
+          text: text,
+          imagePaths: images,
+          platforms: platforms,
+          targets: targets,
+          delayMs: postDelay,
+        ),
+      );
+
+      if (results != null && mounted) {
+        _history.insertAll(0, results);
+        await StorageService.saveHistory(_history);
+        setState(() {});
+
+        final successCount = results.where((r) => r.status == PostStatus.success).length;
+        final failCount = results.where((r) => r.status == PostStatus.error).length;
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              failCount == 0
+                  ? 'Posted to $successCount platform(s)'
+                  : '$successCount succeeded, $failCount failed',
+            ),
+            backgroundColor: failCount == 0 ? AppColors.success : AppColors.warning,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    } finally {
+      _postingInProgress = false;
     }
   }
 

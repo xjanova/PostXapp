@@ -3,6 +3,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../models/platform_model.dart';
 import '../models/post_target.dart';
 import 'cookie_service.dart';
+import 'human_behavior.dart';
+import 'posting_limits.dart';
 
 class PostResult {
   final bool success;
@@ -16,13 +18,17 @@ class PostResult {
 ///
 /// Each platform handler follows the same robust pattern:
 ///  1. Pre-flight login check via saved session cookies (fast, offline)
-///  2. Navigate and wait for document.readyState = complete
-///  3. Poll-wait for composer trigger element (no fixed delays)
-///  4. Fill input using execCommand('insertText') so React/Draft.js/Quill
-///     pick up the change through their native event pipeline
-///  5. Poll-wait for submit button to become enabled
-///  6. Click submit, then VERIFY the post actually went through by
-///     checking URL change or element disappearance
+///  2. Rate-limit check against PostingLimits (soft cap, per user)
+///  3. Navigate and wait for document.readyState = complete
+///  4. Poll-wait for composer trigger element (no fixed delays)
+///  5. Simulate human behaviour: read-pause → scroll → hover → click
+///  6. Human-style chunked typing via HumanBehavior.humanType so
+///     React/Draft.js/Quill/ProseMirror pick up the change through
+///     their native event pipeline
+///  7. Poll-wait for submit button to become enabled
+///  8. Human-style click, then VERIFY the post actually went through
+///     by checking URL change or element disappearance
+///  9. On success, record the post in PostingLimits for rate tracking
 ///
 /// Media upload via WebView is NOT supported because browsers block
 /// programmatic assignment to <input type="file">.files for security.
@@ -61,14 +67,20 @@ class AutomationService {
       );
     }
 
-    // 3. Truncate to platform limit
+    // 3. Rate-limit pre-check — keeps the user below anti-spam thresholds.
+    final rateMsg = await PostingLimits.canPost(platform);
+    if (rateMsg != null) {
+      return PostResult(success: false, error: rateMsg);
+    }
+
+    // 4. Truncate to platform limit
     final postText = text.length > config.maxTextLength
         ? '${text.substring(0, config.maxTextLength - 3)}...'
         : text;
 
     final hasImages = imagePaths.isNotEmpty;
 
-    // 4. Media requirement
+    // 5. Media requirement
     if (config.requiresImage && !hasImages) {
       return PostResult(
         success: false,
@@ -77,19 +89,26 @@ class AutomationService {
     }
 
     try {
+      PostResult result;
       switch (platform) {
         case SocialPlatform.facebook:
-          return await _postToFacebook(controller, postText, hasImages);
+          result = await _postToFacebook(controller, postText, hasImages);
+          break;
         case SocialPlatform.twitter:
-          return await _postToTwitter(controller, postText, hasImages);
+          result = await _postToTwitter(controller, postText, hasImages);
+          break;
         case SocialPlatform.linkedin:
-          return await _postToLinkedIn(controller, postText, hasImages);
+          result = await _postToLinkedIn(controller, postText, hasImages);
+          break;
         case SocialPlatform.threads:
-          return await _postToThreads(controller, postText, hasImages);
+          result = await _postToThreads(controller, postText, hasImages);
+          break;
         case SocialPlatform.bluesky:
-          return await _postToBluesky(controller, postText, hasImages);
+          result = await _postToBluesky(controller, postText, hasImages);
+          break;
         case SocialPlatform.telegram:
-          return await _postToTelegram(controller, postText, hasImages);
+          result = await _postToTelegram(controller, postText, hasImages);
+          break;
         case SocialPlatform.instagram:
         case SocialPlatform.tiktok:
         case SocialPlatform.pinterest:
@@ -100,6 +119,12 @@ class AutomationService {
                 '${config.name} upload requires the native app (WebView cannot attach media files).',
           );
       }
+
+      // Only record successful posts against the rate limit.
+      if (result.success) {
+        await PostingLimits.recordPost(platform);
+      }
+      return result;
     } catch (e) {
       final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
       return PostResult(success: false, error: 'Posting failed: $msg');
@@ -111,7 +136,8 @@ class AutomationService {
   // =====================================================================
 
   /// Navigate and wait until the document is fully loaded + SPA has
-  /// had time to hydrate.
+  /// had time to hydrate. Also performs a human "read the page" pause
+  /// and a small random scroll to look natural.
   static Future<void> _navigate(
     InAppWebViewController controller,
     String url,
@@ -127,8 +153,10 @@ class AutomationService {
       } catch (_) {}
       await Future.delayed(const Duration(milliseconds: 250));
     }
-    // Allow SPA hydration / async chunks
-    await Future.delayed(const Duration(milliseconds: 1500));
+    // Human-style "look at the page" before interacting.
+    await HumanBehavior.readPage();
+    // Tiny random scroll to look like we're skimming content.
+    await HumanBehavior.scrollRandom(controller);
   }
 
   /// Poll the DOM until ANY of the selectors matches. Returns the matched
@@ -159,85 +187,6 @@ class AutomationService {
       await Future.delayed(const Duration(milliseconds: 300));
     }
     return -1;
-  }
-
-  /// Click the first matching element from `selectors`.
-  /// Returns true if something was clicked.
-  static Future<bool> _clickFirst(
-    InAppWebViewController controller,
-    List<String> selectors,
-  ) async {
-    final jsArr = jsonEncode(selectors);
-    try {
-      final raw = await controller.evaluateJavascript(source: '''
-        (function() {
-          var sels = $jsArr;
-          for (var i = 0; i < sels.length; i++) {
-            try {
-              var el = document.querySelector(sels[i]);
-              if (el) {
-                var clickable = el.closest('[role="button"], button, a') || el;
-                if (clickable.disabled) return false;
-                clickable.click();
-                return true;
-              }
-            } catch(e) {}
-          }
-          return false;
-        })()
-      ''');
-      return raw == true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Focus first matching contenteditable-style editor and insert text via
-  /// execCommand so React/Draft.js/ProseMirror/Quill update their state.
-  static Future<bool> _typeIntoEditor(
-    InAppWebViewController controller,
-    List<String> selectors,
-    String text,
-  ) async {
-    final jsArr = jsonEncode(selectors);
-    final jsText = jsonEncode(text);
-    try {
-      final raw = await controller.evaluateJavascript(source: '''
-        (function() {
-          var sels = $jsArr;
-          var el = null;
-          for (var i = 0; i < sels.length; i++) {
-            try {
-              el = document.querySelector(sels[i]);
-              if (el) break;
-            } catch(e) {}
-          }
-          if (!el) return false;
-          el.focus();
-          try {
-            if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
-              var proto = el.tagName === 'TEXTAREA'
-                ? window.HTMLTextAreaElement.prototype
-                : window.HTMLInputElement.prototype;
-              var setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-              setter.call(el, $jsText);
-              el.dispatchEvent(new Event('input', {bubbles: true}));
-              el.dispatchEvent(new Event('change', {bubbles: true}));
-            } else {
-              // contenteditable: use execCommand so frameworks see it
-              document.execCommand('selectAll', false, null);
-              document.execCommand('insertText', false, $jsText);
-            }
-            return true;
-          } catch(e) {
-            return false;
-          }
-        })()
-      ''');
-      return raw == true;
-    } catch (_) {
-      return false;
-    }
   }
 
   /// Returns true if the current URL does NOT contain any of the keywords
@@ -308,8 +257,9 @@ class AutomationService {
     }
     // Click it (unless it was already the textarea)
     if (compIdx != 3) {
-      await _clickFirst(controller, [composerSels[compIdx]]);
-      await Future.delayed(const Duration(milliseconds: 900));
+      await HumanBehavior.beforeClick();
+      await HumanBehavior.humanClick(controller, [composerSels[compIdx]]);
+      await HumanBehavior.delay(700, 1400);
     }
 
     // Fill text
@@ -327,10 +277,10 @@ class AutomationService {
     if (inIdx < 0) {
       return PostResult(success: false, error: 'Facebook input not found');
     }
-    if (!await _typeIntoEditor(controller, inputSels, text)) {
+    if (!await HumanBehavior.humanType(controller, inputSels, text)) {
       return PostResult(success: false, error: 'Failed to fill Facebook composer');
     }
-    await Future.delayed(const Duration(milliseconds: 700));
+    await HumanBehavior.afterType();
 
     // Submit
     const submitSels = [
@@ -347,7 +297,8 @@ class AutomationService {
     if (subIdx < 0) {
       return PostResult(success: false, error: 'Facebook Post button not found');
     }
-    await _clickFirst(controller, [submitSels[subIdx]]);
+    await HumanBehavior.beforeClick();
+    await HumanBehavior.humanClick(controller, [submitSels[subIdx]]);
 
     // Verify: return to feed (URL no longer contains composer) OR composer gone
     final posted = await _waitForCondition(
@@ -402,10 +353,15 @@ class AutomationService {
     if (idx < 0) {
       return PostResult(success: false, error: 'X composer not found');
     }
-    if (!await _typeIntoEditor(controller, editorSels, text)) {
+
+    // Hover + focus before typing, like a real user clicking in.
+    await HumanBehavior.hoverBeforeClick(controller, editorSels);
+    await HumanBehavior.delay(200, 500);
+
+    if (!await HumanBehavior.humanType(controller, editorSels, text)) {
       return PostResult(success: false, error: 'Failed to fill X composer');
     }
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await HumanBehavior.afterType();
 
     const submitSels = [
       'button[data-testid="tweetButton"]:not([aria-disabled="true"]):not([disabled])',
@@ -422,7 +378,8 @@ class AutomationService {
         error: 'X Post button not enabled (text may be empty or over limit)',
       );
     }
-    await _clickFirst(controller, [submitSels[btnIdx]]);
+    await HumanBehavior.beforeClick();
+    await HumanBehavior.humanClick(controller, [submitSels[btnIdx]]);
 
     // Verify: URL leaves /compose/post, or editor cleared
     final posted = await _waitForCondition(
@@ -475,8 +432,9 @@ class AutomationService {
     if (startIdx < 0) {
       return PostResult(success: false, error: 'LinkedIn "Start a post" not found');
     }
-    await _clickFirst(controller, [startSels[startIdx]]);
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await HumanBehavior.beforeClick();
+    await HumanBehavior.humanClick(controller, [startSels[startIdx]]);
+    await HumanBehavior.delay(900, 1600);
 
     // Editor (Quill)
     const editorSels = [
@@ -492,10 +450,14 @@ class AutomationService {
     if (edIdx < 0) {
       return PostResult(success: false, error: 'LinkedIn editor not found');
     }
-    if (!await _typeIntoEditor(controller, editorSels, text)) {
+
+    await HumanBehavior.hoverBeforeClick(controller, editorSels);
+    await HumanBehavior.delay(200, 500);
+
+    if (!await HumanBehavior.humanType(controller, editorSels, text)) {
       return PostResult(success: false, error: 'Failed to fill LinkedIn editor');
     }
-    await Future.delayed(const Duration(milliseconds: 1500));
+    await HumanBehavior.afterType();
 
     // Submit
     const submitSels = [
@@ -509,7 +471,8 @@ class AutomationService {
     );
     bool clicked = false;
     if (subIdx >= 0) {
-      clicked = await _clickFirst(controller, [submitSels[subIdx]]);
+      await HumanBehavior.beforeClick();
+      clicked = await HumanBehavior.humanClick(controller, [submitSels[subIdx]]);
     } else {
       // Fallback: find <button> whose text === "Post"
       try {
@@ -517,7 +480,19 @@ class AutomationService {
           (function() {
             var btns = Array.from(document.querySelectorAll('button:not([disabled])'));
             var b = btns.find(function(x) { return x.textContent.trim() === 'Post'; });
-            if (b) { b.click(); return true; }
+            if (b) {
+              try {
+                var r = b.getBoundingClientRect();
+                var x = r.left + r.width / 2;
+                var y = r.top + r.height / 2;
+                var opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window, button: 0 };
+                b.dispatchEvent(new MouseEvent('mouseover', opts));
+                b.dispatchEvent(new MouseEvent('mousedown', opts));
+                b.dispatchEvent(new MouseEvent('mouseup', opts));
+                b.dispatchEvent(new MouseEvent('click', opts));
+              } catch(e) { b.click(); }
+              return true;
+            }
             return false;
           })()
         ''');
@@ -572,8 +547,9 @@ class AutomationService {
     if (oIdx < 0) {
       return PostResult(success: false, error: 'Threads create button not found');
     }
-    await _clickFirst(controller, [openSels[oIdx]]);
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await HumanBehavior.beforeClick();
+    await HumanBehavior.humanClick(controller, [openSels[oIdx]]);
+    await HumanBehavior.delay(900, 1600);
 
     const editorSels = [
       'div[contenteditable="true"][role="textbox"]',
@@ -587,12 +563,16 @@ class AutomationService {
     if (eIdx < 0) {
       return PostResult(success: false, error: 'Threads editor not found');
     }
-    if (!await _typeIntoEditor(controller, editorSels, text)) {
+
+    await HumanBehavior.hoverBeforeClick(controller, editorSels);
+    await HumanBehavior.delay(200, 500);
+
+    if (!await HumanBehavior.humanType(controller, editorSels, text)) {
       return PostResult(success: false, error: 'Failed to fill Threads editor');
     }
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await HumanBehavior.afterType();
 
-    // Post button — find by text and enabled state
+    // Post button — find by text and enabled state, click with mouse events
     bool clicked = false;
     try {
       final raw = await controller.evaluateJavascript(source: '''
@@ -604,7 +584,19 @@ class AutomationService {
                    x.getAttribute('aria-disabled') !== 'true' &&
                    !x.disabled;
           });
-          if (b) { b.click(); return true; }
+          if (b) {
+            try {
+              var r = b.getBoundingClientRect();
+              var x = r.left + r.width / 2;
+              var y = r.top + r.height / 2;
+              var opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window, button: 0 };
+              b.dispatchEvent(new MouseEvent('mouseover', opts));
+              b.dispatchEvent(new MouseEvent('mousedown', opts));
+              b.dispatchEvent(new MouseEvent('mouseup', opts));
+              b.dispatchEvent(new MouseEvent('click', opts));
+            } catch(e) { b.click(); }
+            return true;
+          }
           return false;
         })()
       ''');
@@ -658,8 +650,9 @@ class AutomationService {
     if (oIdx < 0) {
       return PostResult(success: false, error: 'Bluesky compose button not found');
     }
-    await _clickFirst(controller, [openSels[oIdx]]);
-    await Future.delayed(const Duration(milliseconds: 1000));
+    await HumanBehavior.beforeClick();
+    await HumanBehavior.humanClick(controller, [openSels[oIdx]]);
+    await HumanBehavior.delay(800, 1500);
 
     const editorSels = [
       'div.ProseMirror[contenteditable="true"]',
@@ -674,10 +667,14 @@ class AutomationService {
     if (eIdx < 0) {
       return PostResult(success: false, error: 'Bluesky editor not found');
     }
-    if (!await _typeIntoEditor(controller, editorSels, text)) {
+
+    await HumanBehavior.hoverBeforeClick(controller, editorSels);
+    await HumanBehavior.delay(200, 500);
+
+    if (!await HumanBehavior.humanType(controller, editorSels, text)) {
       return PostResult(success: false, error: 'Failed to fill Bluesky editor');
     }
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await HumanBehavior.afterType();
 
     const submitSels = [
       'button[data-testid="composerPublishBtn"]:not([aria-disabled="true"]):not([disabled])',
@@ -691,7 +688,8 @@ class AutomationService {
     if (sIdx < 0) {
       return PostResult(success: false, error: 'Bluesky Post button not enabled');
     }
-    await _clickFirst(controller, [submitSels[sIdx]]);
+    await HumanBehavior.beforeClick();
+    await HumanBehavior.humanClick(controller, [submitSels[sIdx]]);
 
     final posted = await _waitForCondition(
       controller,
@@ -753,7 +751,7 @@ class AutomationService {
       ''');
     } catch (_) {}
 
-    await Future.delayed(const Duration(milliseconds: 1500));
+    await HumanBehavior.delay(1000, 1800);
 
     const inputSels = [
       'div.input-message-input[contenteditable="true"]',
@@ -771,10 +769,14 @@ class AutomationService {
         error: 'Telegram input not found. Open a chat first.',
       );
     }
-    if (!await _typeIntoEditor(controller, inputSels, text)) {
+
+    await HumanBehavior.hoverBeforeClick(controller, inputSels);
+    await HumanBehavior.delay(200, 500);
+
+    if (!await HumanBehavior.humanType(controller, inputSels, text)) {
       return PostResult(success: false, error: 'Failed to fill Telegram input');
     }
-    await Future.delayed(const Duration(milliseconds: 700));
+    await HumanBehavior.afterType();
 
     const sendSels = [
       'button.btn-send:not([disabled])',
@@ -789,7 +791,8 @@ class AutomationService {
     if (sIdx < 0) {
       return PostResult(success: false, error: 'Telegram Send button not found');
     }
-    await _clickFirst(controller, [sendSels[sIdx]]);
+    await HumanBehavior.beforeClick();
+    await HumanBehavior.humanClick(controller, [sendSels[sIdx]]);
 
     // Verify: input cleared
     final posted = await _waitForCondition(

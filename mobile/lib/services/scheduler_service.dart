@@ -110,6 +110,16 @@ class SchedulerService {
     }
   }
 
+  /// Revert a post back to pending so the scheduler picks it up on the
+  /// next tick. Used when we need to defer (e.g. user is already posting).
+  static Future<void> revertToPending(String id) async {
+    final post = _scheduledPosts.where((p) => p.id == id).firstOrNull;
+    if (post != null) {
+      post.status = ScheduleStatus.pending;
+      await _save();
+    }
+  }
+
   /// Cancel a scheduled post.
   static Future<void> cancelPost(String id) async {
     final post = _scheduledPosts.where((p) => p.id == id).firstOrNull;
