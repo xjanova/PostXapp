@@ -132,11 +132,15 @@ class _UpdateDialog extends StatefulWidget {
 class _UpdateDialogState extends State<_UpdateDialog> {
   bool _downloading = false;
   double _progress = 0;
+  String? _error;
 
   Future<void> _download() async {
     if (widget.info.downloadUrl == null) return;
 
-    setState(() => _downloading = true);
+    setState(() {
+      _downloading = true;
+      _error = null;
+    });
 
     final path = await UpdateService.downloadApk(
       widget.info.downloadUrl!,
@@ -144,12 +148,32 @@ class _UpdateDialogState extends State<_UpdateDialog> {
     );
 
     if (path != null && mounted) {
-      // Install APK via open_filex (handles FileProvider/content URI)
-      await OpenFilex.open(path, type: 'application/vnd.android.package-archive');
+      try {
+        final result = await OpenFilex.open(path, type: 'application/vnd.android.package-archive');
+        // OpenFilex returns a ResultType — check if it failed
+        if (result.type != ResultType.done && mounted) {
+          setState(() {
+            _downloading = false;
+            _error = 'install_failed';
+          });
+          return;
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _downloading = false;
+            _error = 'install_failed';
+          });
+          return;
+        }
+      }
 
       if (mounted) Navigator.pop(context);
     } else if (mounted) {
-      setState(() => _downloading = false);
+      setState(() {
+        _downloading = false;
+        _error = 'download_failed';
+      });
     }
   }
 
@@ -165,48 +189,87 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           const Text('Update Available', style: TextStyle(fontSize: 18)),
         ],
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Version ${widget.info.version} is available',
-            style: TextStyle(color: AppColors.surface300, fontSize: 14),
-          ),
-          if (widget.info.releaseNotes.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.surface900,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                widget.info.releaseNotes.length > 200
-                    ? '${widget.info.releaseNotes.substring(0, 200)}...'
-                    : widget.info.releaseNotes,
-                style: TextStyle(fontSize: 12, color: AppColors.surface400, height: 1.4),
-              ),
-            ),
-          ],
-          if (_downloading) ...[
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: _progress,
-                backgroundColor: AppColors.surface700,
-                valueColor: const AlwaysStoppedAnimation(AppColors.red),
-                minHeight: 6,
-              ),
-            ),
-            const SizedBox(height: 4),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              '${(_progress * 100).toStringAsFixed(0)}%',
-              style: TextStyle(fontSize: 11, color: AppColors.surface400),
+              'Version ${widget.info.version} is available',
+              style: TextStyle(color: AppColors.surface300, fontSize: 14),
             ),
+            if (widget.info.releaseNotes.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.surface900,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  widget.info.releaseNotes.length > 200
+                      ? '${widget.info.releaseNotes.substring(0, 200)}...'
+                      : widget.info.releaseNotes,
+                  style: TextStyle(fontSize: 12, color: AppColors.surface400, height: 1.4),
+                ),
+              ),
+            ],
+            if (_downloading) ...[
+              const SizedBox(height: 16),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: _progress,
+                  backgroundColor: AppColors.surface700,
+                  valueColor: const AlwaysStoppedAnimation(AppColors.red),
+                  minHeight: 6,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${(_progress * 100).toStringAsFixed(0)}%',
+                style: TextStyle(fontSize: 11, color: AppColors.surface400),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.warning.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.warning.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.warning_amber, size: 16, color: AppColors.warning),
+                        const SizedBox(width: 6),
+                        Text(
+                          _error == 'install_failed'
+                              ? 'Install Failed'
+                              : 'Download Failed',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.warning),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _error == 'install_failed'
+                          ? 'This is usually caused by a signing conflict. '
+                            'Please uninstall the current version first, then download and install the new APK.'
+                          : 'Check your internet connection and try again.',
+                      style: TextStyle(fontSize: 11, color: AppColors.surface300, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
       actions: [
         TextButton(
@@ -222,7 +285,7 @@ class _UpdateDialogState extends State<_UpdateDialog> {
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                   )
-                : const Text('Download & Install'),
+                : Text(_error != null ? 'Retry' : 'Download & Install'),
           ),
       ],
     );

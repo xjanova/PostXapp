@@ -98,11 +98,14 @@ class _MainScreenState extends State<MainScreen> {
     _checkForUpdates();
   }
 
-  Future<void> _checkForUpdates() async {
+  /// Returns true if update was found (dialog shown), false if up to date.
+  Future<bool> _checkForUpdates() async {
     final update = await UpdateService.checkForUpdate();
     if (update != null && mounted) {
       UpdateService.showUpdateDialog(context, update);
+      return true;
     }
+    return false;
   }
 
   void _showModelDownloadSheet() {
@@ -355,6 +358,7 @@ class _MainScreenState extends State<MainScreen> {
               settings: _settings,
               onUpdate: _handleSettingsUpdate,
               onDownloadModel: _showModelDownloadSheet,
+              onCheckUpdate: _checkForUpdates,
             ),
           ],
         ),

@@ -8,12 +8,14 @@ class SettingsPage extends StatefulWidget {
   final Map<String, dynamic> settings;
   final Function(String key, dynamic value) onUpdate;
   final VoidCallback? onDownloadModel;
+  final Future<bool> Function()? onCheckUpdate;
 
   const SettingsPage({
     super.key,
     required this.settings,
     required this.onUpdate,
     this.onDownloadModel,
+    this.onCheckUpdate,
   });
 
   @override
@@ -24,6 +26,8 @@ class _SettingsPageState extends State<SettingsPage> {
   late TextEditingController _delayController;
   late TextEditingController _retryController;
   String _version = '';
+  bool _checkingUpdate = false;
+  String? _updateStatus;
 
   @override
   void initState() {
@@ -54,6 +58,31 @@ class _SettingsPageState extends State<SettingsPage> {
     _delayController.dispose();
     _retryController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkForUpdate() async {
+    if (_checkingUpdate) return;
+    setState(() {
+      _checkingUpdate = true;
+      _updateStatus = null;
+    });
+
+    try {
+      final found = await widget.onCheckUpdate?.call() ?? false;
+      if (mounted) {
+        setState(() {
+          _checkingUpdate = false;
+          _updateStatus = found ? null : 'up_to_date';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _checkingUpdate = false;
+          _updateStatus = 'error';
+        });
+      }
+    }
   }
 
   Future<void> _deleteModel() async {
@@ -330,6 +359,98 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                 ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // ── App Updates ──────────────────────────────
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.system_update, size: 16, color: AppColors.surface400),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'App Updates',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                if (_updateStatus == 'up_to_date') ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.success.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.check_circle, size: 16, color: AppColors.success),
+                        const SizedBox(width: 8),
+                        Text(
+                          'You\'re on the latest version',
+                          style: TextStyle(fontSize: 12, color: AppColors.success),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ] else if (_updateStatus == 'error') ...[
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.error_outline, size: 16, color: AppColors.error),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Could not check for updates. Check your internet connection.',
+                            style: TextStyle(fontSize: 12, color: AppColors.error),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _checkingUpdate ? null : _checkForUpdate,
+                    icon: _checkingUpdate
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.refresh, size: 16),
+                    label: Text(
+                      _checkingUpdate ? 'Checking...' : 'Check for Updates',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.info,
+                      disabledBackgroundColor: AppColors.surface700,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'If update fails with "package conflict", uninstall the old version first then install the new APK.',
+                  style: TextStyle(fontSize: 11, color: AppColors.surface500, height: 1.3),
+                ),
               ],
             ),
           ),
