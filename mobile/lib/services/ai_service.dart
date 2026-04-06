@@ -10,15 +10,16 @@ enum AiModelStatus { notDownloaded, downloading, ready, error }
 
 class AiService {
   static const _channel = MethodChannel('com.postxapp/gemma');
-  static const _modelFileName = 'gemma-4-e2b-it.bin';
+  static const _modelFileName = 'google_gemma-4-E2B-it-Q4_K_M.gguf';
   static const _prefModelReady = 'ai_model_ready';
   static const _prefModelPath = 'ai_model_path';
 
-  // Gemma 4 E2B IT quantized model (~1.5GB)
-  // This URL should be updated to the actual model hosting location
+  // Gemma 4 E2B IT quantized (Q4_K_M) — ~3.46GB
+  // Using bartowski's public GGUF mirror (no HuggingFace auth required).
   static const modelDownloadUrl =
-      'https://huggingface.co/google/gemma-4-e2b-it-gguf/resolve/main/gemma-4-e2b-it-Q4_K_M.gguf';
-  static const modelSizeBytes = 1610612736; // ~1.5GB approximate
+      'https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main/google_gemma-4-E2B-it-Q4_K_M.gguf';
+  static const modelSizeBytes = 3715891200; // ~3.46GB actual
+  static const _minValidSizeBytes = 100 * 1024 * 1024; // 100MB — anything smaller is corrupted
 
   static AiModelStatus _status = AiModelStatus.notDownloaded;
   static double _downloadProgress = 0.0;
@@ -87,28 +88,65 @@ class AiService {
 
       _httpClient = http.Client();
       final request = http.Request('GET', Uri.parse(modelDownloadUrl));
-      final response = await _httpClient!.send(request);
+      // HuggingFace may block requests without a User-Agent
+      request.headers['User-Agent'] = 'PostXApp/1.0 (Android; Flutter)';
+      request.headers['Accept'] = '*/*';
+      final response = await _httpClient!.send(request).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw Exception('Connection timeout. Check your internet and try again.');
+        },
+      );
 
       if (response.statusCode != 200) {
-        throw Exception('Download failed: HTTP ${response.statusCode}');
+        final msg = switch (response.statusCode) {
+          401 || 403 => 'Access denied. The model server requires authentication.',
+          404 => 'Model file not found on server. The download URL may be outdated.',
+          429 => 'Too many requests. Please wait a few minutes and try again.',
+          >= 500 => 'Model server error (HTTP ${response.statusCode}). Try again later.',
+          _ => 'Download failed: HTTP ${response.statusCode}',
+        };
+        throw Exception(msg);
       }
 
       final totalBytes = response.contentLength ?? modelSizeBytes;
       var receivedBytes = 0;
       final sink = file.openWrite();
 
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        receivedBytes += chunk.length;
-        _downloadProgress = receivedBytes / totalBytes;
+      try {
+        await for (final chunk in response.stream) {
+          // Allow cancellation mid-stream
+          if (_httpClient == null) {
+            await sink.close();
+            if (await File(tempPath).exists()) {
+              await File(tempPath).delete();
+            }
+            _status = AiModelStatus.notDownloaded;
+            _downloadProgress = 0.0;
+            return false;
+          }
+          sink.add(chunk);
+          receivedBytes += chunk.length;
+          _downloadProgress = receivedBytes / totalBytes;
 
-        final mbReceived = (receivedBytes / 1024 / 1024).toStringAsFixed(0);
-        final mbTotal = (totalBytes / 1024 / 1024).toStringAsFixed(0);
-        onProgress(_downloadProgress, '$mbReceived / $mbTotal MB');
+          final mbReceived = (receivedBytes / 1024 / 1024).toStringAsFixed(0);
+          final mbTotal = (totalBytes / 1024 / 1024).toStringAsFixed(0);
+          onProgress(_downloadProgress, '$mbReceived / $mbTotal MB');
+        }
+      } finally {
+        await sink.close();
       }
-
-      await sink.close();
       _httpClient = null;
+
+      // Validate downloaded file size — a few KB usually means HTML error page
+      final downloadedSize = await File(tempPath).length();
+      if (downloadedSize < _minValidSizeBytes) {
+        await File(tempPath).delete();
+        throw Exception(
+          'Downloaded file is too small (${(downloadedSize / 1024).toStringAsFixed(0)} KB). '
+          'The server may have returned an error page instead of the model.',
+        );
+      }
 
       // Rename temp to final
       await File(tempPath).rename(filePath);
